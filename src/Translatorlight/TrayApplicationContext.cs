@@ -20,7 +20,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _copyItem;
     private readonly ToolStripMenuItem _directionItem;
     private readonly ToolStripMenuItem _serviceItem;
-    private readonly ToolStripMenuItem _sourceItem;
     private readonly ToolStripMenuItem _dimItem;
     private readonly ToolStripMenuItem _startHiddenItem;
     private readonly ToolStripMenuItem _autostartItem;
@@ -49,7 +48,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _topMostItem = new ToolStripMenuItem("Поверх всех окон", null, (_, _) => ToggleTopMost());
         _copyItem = new ToolStripMenuItem("Сразу копировать перевод", null, (_, _) => ToggleCopy());
-        _sourceItem = new ToolStripMenuItem("Показывать оригинал", null, (_, _) => ToggleSource());
         _dimItem = new ToolStripMenuItem("Приглушать, пока не активен", null, (_, _) => ToggleDim());
         _startHiddenItem = new ToolStripMenuItem("Запускаться свёрнутым", null, (_, _) => ToggleStartHidden());
         _autostartItem = new ToolStripMenuItem("Запускать вместе с Windows", null, (_, _) => ToggleAutostart());
@@ -70,7 +68,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
             new ToolStripSeparator(),
             _topMostItem,
             _copyItem,
-            _sourceItem,
             _dimItem,
             _startHiddenItem,
             _autostartItem,
@@ -172,13 +169,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _settings.Save();
     }
 
-    private void ToggleSource()
-    {
-        _settings.ShowSourceText = !_settings.ShowSourceText;
-        _settings.Save();
-        _widget.ApplySettings();
-    }
-
     private void ToggleDim()
     {
         _settings.DimWhenInactive = !_settings.DimWhenInactive;
@@ -212,7 +202,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _showItem.Text = _widget.Visible ? "Скрыть виджет" : "Показать виджет";
         _topMostItem.Checked = _settings.AlwaysOnTop;
         _copyItem.Checked = _settings.CopyToClipboard;
-        _sourceItem.Checked = _settings.ShowSourceText;
         _dimItem.Checked = _settings.DimWhenInactive;
         _startHiddenItem.Checked = _settings.StartHidden;
         _autostartItem.Checked = Autostart.IsEnabled();

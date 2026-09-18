@@ -15,9 +15,10 @@ from PIL import Image, ImageDraw, ImageFont
 OUTPUT = Path(__file__).resolve().parent.parent / "docs" / "preview.png"
 
 SCALE = 2
-WIDTH, HEIGHT = 372, 214
+WIDTH, HEIGHT = 372, 252
 HEADER = 32
 FOOTER = 26
+INPUT = 48
 MARGIN = 28
 
 WINDOW = (0xF6, 0xF6, 0xF9)
@@ -27,10 +28,11 @@ BORDER = (0xD3, 0xD3, 0xDB)
 TEXT = (0x1A, 0x1A, 0x1F)
 MUTED = (0x69, 0x69, 0x75)
 SELECTION = (0xCD, 0xDE, 0xFB)
+ACCENT = (0x2F, 0x6F, 0xEC)
 PAGE = (0xE8, 0xE8, 0xEE)
 
-SOURCE = "Drag any selected English text onto the widget."
-RESULT = "Перетащите любой выделенный английский текст на виджет."
+SOURCE = "Type here, or drop text on the widget."
+RESULT = "Напечатайте здесь или бросьте текст на виджет."
 
 REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -94,12 +96,20 @@ def main():
     draw.line((close - 4 * SCALE, centre - 4 * SCALE, close + 4 * SCALE, centre + 4 * SCALE), fill=MUTED, width=SCALE)
     draw.line((close + 4 * SCALE, centre - 4 * SCALE, close - 4 * SCALE, centre + 4 * SCALE), fill=MUTED, width=SCALE)
 
-    # The dropped original, kept to one line.
-    source_top = top + (HEADER + 6) * SCALE
-    draw.text((left + 10 * SCALE, source_top + 8 * SCALE), SOURCE, font=tiny, fill=MUTED, anchor="lm")
+    # The box that is typed into, with the caret sitting after the text.
+    input_top = top + (HEADER + 6) * SCALE
+    input_bottom = input_top + (INPUT - 6) * SCALE
+    draw.rectangle((left + 10 * SCALE, input_top, right - 10 * SCALE, input_bottom),
+                   fill=SURFACE, outline=ACCENT)
+
+    typed_left = left + 18 * SCALE
+    typed_top = input_top + 8 * SCALE
+    draw.text((typed_left, typed_top), SOURCE, font=body, fill=TEXT)
+    caret = typed_left + draw.textlength(SOURCE, font=body) + 2 * SCALE
+    draw.line((caret, typed_top, caret, typed_top + 15 * SCALE), fill=TEXT, width=SCALE)
 
     # The translation, selected the moment it arrives.
-    result_top = source_top + 21 * SCALE
+    result_top = input_bottom + 6 * SCALE
     result_bottom = bottom - (FOOTER + 4) * SCALE
     draw.rectangle((left + 10 * SCALE, result_top, right - 10 * SCALE, result_bottom),
                    fill=SURFACE, outline=BORDER)

@@ -2,7 +2,6 @@ using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace Translatorlight;
 
@@ -13,9 +12,10 @@ namespace Translatorlight;
 internal sealed class WidgetForm : Form
 {
     private const int DefaultWidth = 372;
-    private const int DefaultHeight = 214;
+    private const int DefaultHeight = 252;
     private const int SmallestWidth = 280;
-    private const int SmallestHeight = 168;
+    private const int SmallestHeight = 200;
+    private const int InputHeight = 48;
     private const int LargestWidth = 1200;
     private const int LargestHeight = 900;
     private const int ScreenMargin = 24;
@@ -30,7 +30,6 @@ internal sealed class WidgetForm : Form
 
     private readonly Font _titleFont;
     private readonly Font _glyphFont;
-    private readonly Font _sourceFont;
     private readonly Font _resultFont;
     private readonly Font _statusFont;
 
@@ -44,7 +43,8 @@ internal sealed class WidgetForm : Form
     private readonly Label _pinButton;
     private readonly Label _closeButton;
     private readonly TableLayoutPanel _body;
-    private readonly Label _sourceLabel;
+    private readonly Panel _inputHost;
+    private readonly TextBox _inputBox;
     private readonly Panel _resultHost;
     private readonly TextBox _resultBox;
     private readonly Label _hintLabel;
@@ -77,7 +77,6 @@ internal sealed class WidgetForm : Form
 
         _titleFont = new Font("Segoe UI", 9F);
         _glyphFont = new Font(Glyphs.FamilyName, Glyphs.Available ? 9F : 10F);
-        _sourceFont = new Font("Segoe UI", 8.25F);
         _resultFont = new Font("Segoe UI", 10.5F);
         _statusFont = new Font("Segoe UI", 8.25F);
 
@@ -135,16 +134,27 @@ internal sealed class WidgetForm : Form
         _header.Controls.Add(_headerDrag, 1, 0);
         _header.Controls.Add(_headerButtons, 2, 0);
 
-        _sourceLabel = new Label
+        _inputBox = new TextBox
         {
             Dock = DockStyle.Fill,
-            AutoSize = false,
-            Height = 17,
-            Font = _sourceFont,
-            TextAlign = ContentAlignment.MiddleLeft,
-            AutoEllipsis = true,
-            Margin = new Padding(0, 0, 0, 4),
+            Multiline = true,
+            WordWrap = true,
+            AcceptsReturn = true,
+            BorderStyle = BorderStyle.None,
+            ScrollBars = ScrollBars.Vertical,
+            Font = _resultFont,
+            PlaceholderText = "Напечатайте текст и нажмите Enter",
         };
+        _inputBox.KeyDown += OnInputKeyDown;
+
+        _inputHost = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 0, 6),
+            Padding = new Padding(8, 6, 6, 6),
+        };
+        _inputHost.Controls.Add(_inputBox);
+        _inputHost.Paint += OnInputHostPaint;
 
         _resultBox = new TextBox
         {
@@ -165,7 +175,7 @@ internal sealed class WidgetForm : Form
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
             Font = _titleFont,
-            Text = "Перетащите сюда выделенный текст\nи получите русский перевод",
+            Text = "Перетащите сюда текст мышью\nили напечатайте сверху и нажмите Enter",
         };
 
         _resultHost = new Panel
@@ -188,9 +198,9 @@ internal sealed class WidgetForm : Form
             Padding = new Padding(10, 6, 10, 4),
         };
         _body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        _body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _body.RowStyles.Add(new RowStyle(SizeType.Absolute, InputHeight));
         _body.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        _body.Controls.Add(_sourceLabel, 0, 0);
+        _body.Controls.Add(_inputHost, 0, 0);
         _body.Controls.Add(_resultHost, 0, 1);
 
         _statusLabel = new Label
@@ -271,6 +281,24 @@ internal sealed class WidgetForm : Form
         _directionLabel.MouseDown += OnHeaderMouseDown;
         _headerDrag.MouseDown += OnHeaderMouseDown;
 
+        _inputBox.Enter += (_, _) => _inputHost.Invalidate();
+        _inputBox.Leave += (_, _) => _inputHost.Invalidate();
+
+        // A click on any empty part of the widget lands in the input box, so the widget can be
+        // typed into without aiming at the box itself.
+        foreach (Control control in new Control[] { this, _headerDrag, _body, _footer, _statusLabel, _resultHost, _hintLabel })
+        {
+            control.Click += (_, _) => FocusInput();
+        }
+
+        _resultBox.Click += (_, _) =>
+        {
+            if (_resultBox.TextLength == 0)
+            {
+                FocusInput();
+            }
+        };
+
         _dragLeaveTimer = new System.Windows.Forms.Timer { Interval = DragLeaveGraceMilliseconds };
         _dragLeaveTimer.Tick += (_, _) =>
         {
@@ -284,7 +312,7 @@ internal sealed class WidgetForm : Form
         EnableDropTarget(this);
         ApplyTheme();
         ApplySettings();
-        ShowStatus("Перетащите текст — переведу на русский", error: false);
+        ShowStatus("Перетащите текст или напечатайте его сверху", error: false);
         PositionGrip();
     }
 
@@ -320,6 +348,7 @@ internal sealed class WidgetForm : Form
         if (activate)
         {
             Activate();
+            FocusInput();
         }
     }
 
@@ -361,13 +390,48 @@ internal sealed class WidgetForm : Form
         _ = TranslateAsync(text);
     }
 
+    /// <summary>Puts the caret in the input box, so the widget can be typed into straight away.</summary>
+    private void FocusInput()
+    {
+        if (!_inputBox.Focused)
+        {
+            _inputBox.Focus();
+        }
+
+        _inputBox.Select(_inputBox.TextLength, 0);
+    }
+
+    private void OnInputKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode != Keys.Enter || e.Shift)
+        {
+            // Shift+Enter is left to the box as an ordinary line break.
+            return;
+        }
+
+        e.Handled = true;
+        e.SuppressKeyPress = true;
+        TranslateInput();
+    }
+
+    private void TranslateInput()
+    {
+        string text = _inputBox.Text.Trim();
+        if (text.Length == 0)
+        {
+            ShowStatus("Напечатайте текст или перетащите его сюда.", error: true);
+            return;
+        }
+
+        Translate(text);
+    }
+
     /// <summary>Re-reads the settings that change how the widget looks and behaves.</summary>
     internal void ApplySettings()
     {
         TopMost = _settings.AlwaysOnTop;
         _pinButton.Text = _settings.AlwaysOnTop ? Glyphs.Pin : Glyphs.Unpin;
         _tips.SetToolTip(_pinButton, _settings.AlwaysOnTop ? "Поверх всех окон: включено" : "Поверх всех окон: выключено");
-        _sourceLabel.Visible = _settings.ShowSourceText && _sourceLabel.Text.Length > 0;
         UpdateDirectionLabel(null);
         UpdateOpacity();
     }
@@ -393,8 +457,9 @@ internal sealed class WidgetForm : Form
         }
 
         _body.BackColor = _palette.Window;
-        _sourceLabel.BackColor = Color.Transparent;
-        _sourceLabel.ForeColor = _palette.Muted;
+        _inputHost.BackColor = _palette.Surface;
+        _inputBox.BackColor = _palette.Surface;
+        _inputBox.ForeColor = _palette.Text;
 
         _resultHost.BackColor = _palette.Surface;
         _resultBox.BackColor = _palette.Surface;
@@ -456,16 +521,17 @@ internal sealed class WidgetForm : Form
     {
         if (e.KeyCode == Keys.Escape)
         {
-            HideWidget();
-            e.Handled = true;
-            return;
-        }
+            // Esc clears what was typed first, and hides the widget only once the box is empty.
+            if (_inputBox.Focused && _inputBox.TextLength > 0)
+            {
+                _inputBox.Clear();
+            }
+            else
+            {
+                HideWidget();
+            }
 
-        if (e.Control && e.KeyCode == Keys.V)
-        {
-            TranslateClipboard();
             e.Handled = true;
-            e.SuppressKeyPress = true;
             return;
         }
 
@@ -506,7 +572,6 @@ internal sealed class WidgetForm : Form
 
         _titleFont.Dispose();
         _glyphFont.Dispose();
-        _sourceFont.Dispose();
         _resultFont.Dispose();
         _statusFont.Dispose();
     }
@@ -696,12 +761,15 @@ internal sealed class WidgetForm : Form
         SetState(IconState.Idle);
     }
 
+    /// <summary>Puts the text about to be translated into the input box, ready to be edited.</summary>
     private void ShowSource(string text)
     {
-        string oneLine = Regex.Replace(text, @"\s+", " ").Trim();
-        _sourceLabel.Text = oneLine;
-        _sourceLabel.Visible = _settings.ShowSourceText && oneLine.Length > 0;
-        _tips.SetToolTip(_sourceLabel, oneLine.Length > 200 ? oneLine[..200] + "…" : oneLine);
+        if (!string.Equals(_inputBox.Text, text, StringComparison.Ordinal))
+        {
+            _inputBox.Text = text;
+        }
+
+        _inputBox.Select(_inputBox.TextLength, 0);
     }
 
     private void ShowStatus(string text, bool error)
@@ -764,6 +832,7 @@ internal sealed class WidgetForm : Form
 
         _dropActive = active;
         UpdateOpacity();
+        _inputHost.Invalidate();
         _resultHost.Invalidate();
         Invalidate();
     }
@@ -785,17 +854,24 @@ internal sealed class WidgetForm : Form
         }
     }
 
-    private void OnResultHostPaint(object? sender, PaintEventArgs e)
+    private void OnResultHostPaint(object? sender, PaintEventArgs e) =>
+        PaintBoxBorder(e, _resultHost, focused: false);
+
+    private void OnInputHostPaint(object? sender, PaintEventArgs e) =>
+        PaintBoxBorder(e, _inputHost, _inputBox.Focused);
+
+    /// <summary>Draws the frame around one of the two boxes.</summary>
+    private void PaintBoxBorder(PaintEventArgs e, Control box, bool focused)
     {
         if (_dropActive)
         {
             using var highlight = new Pen(_palette.Accent, 2f) { DashStyle = DashStyle.Dash };
-            e.Graphics.DrawRectangle(highlight, 1, 1, _resultHost.Width - 3, _resultHost.Height - 3);
+            e.Graphics.DrawRectangle(highlight, 1, 1, box.Width - 3, box.Height - 3);
             return;
         }
 
-        using var border = new Pen(_palette.Border);
-        e.Graphics.DrawRectangle(border, 0, 0, _resultHost.Width - 1, _resultHost.Height - 1);
+        using var border = new Pen(focused ? _palette.Accent : _palette.Border);
+        e.Graphics.DrawRectangle(border, 0, 0, box.Width - 1, box.Height - 1);
     }
 
     private void OnGripPaint(object? sender, PaintEventArgs e)

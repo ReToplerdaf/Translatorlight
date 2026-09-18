@@ -36,9 +36,6 @@ internal sealed class AppSettings
     /// <summary>Preferred service: "auto", "Google", "MyMemory" or "Lingva". The rest stay as fallbacks.</summary>
     public string Service { get; set; } = ServiceAuto;
 
-    /// <summary>Show the dropped original above the translation.</summary>
-    public bool ShowSourceText { get; set; } = true;
-
     /// <summary>Fade the widget slightly while it is not the active window.</summary>
     public bool DimWhenInactive { get; set; } = true;
 
