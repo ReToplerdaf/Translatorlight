@@ -14,6 +14,9 @@ internal static class NativeMethods
     /// <summary>DWMWCP_ROUND.</summary>
     private const int CornerPreferenceRound = 2;
 
+    private const int EmSetSelection = 0x00B1;
+    private const int EmScrollCaret = 0x00B7;
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool DestroyIcon(IntPtr hIcon);
@@ -41,6 +44,24 @@ internal static class NativeMethods
 
         ReleaseCapture();
         SendMessage(handle, WmNcLeftButtonDown, (IntPtr)HitTestCaption, IntPtr.Zero);
+    }
+
+    /// <summary>
+    /// Selects the whole contents of a text box while leaving the view at the start of it.
+    /// Setting the selection the ordinary way puts the caret at the end, and a one-line box then
+    /// shows the tail of a long translation instead of its beginning.
+    /// </summary>
+    internal static void SelectAllShowingStart(IntPtr handle, int length)
+    {
+        if (handle == IntPtr.Zero || length <= 0)
+        {
+            return;
+        }
+
+        // EM_SETSEL anchors the selection at the first value and leaves the caret at the second,
+        // so anchoring at the end scrolls the box back to the first character.
+        SendMessage(handle, EmSetSelection, (IntPtr)length, IntPtr.Zero);
+        SendMessage(handle, EmScrollCaret, IntPtr.Zero, IntPtr.Zero);
     }
 
     /// <summary>Asks Windows 11 to round the corners of a borderless window.</summary>

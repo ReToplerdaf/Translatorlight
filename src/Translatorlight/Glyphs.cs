@@ -20,8 +20,6 @@ internal static class Glyphs
 
     internal static string Close => Available ? "\uE8BB" : "\u2715";
 
-    internal static string Swap => Available ? "\uE8AB" : "\u21C4";
-
     private static string? ResolveFamily()
     {
         try

@@ -1,56 +1,53 @@
 using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace Translatorlight;
 
 /// <summary>
-/// The widget itself: a small window that hangs above the other windows, takes text dragged
-/// onto it from anywhere, and leaves the translation selected and copied, ready to be pasted.
+/// The widget itself: a strip exactly one line tall that lives above the taskbar. Text is
+/// dropped on it or typed into it, and the translation appears in the same line - selected
+/// whole, however far past the edge it runs, and copied to the clipboard.
 /// </summary>
 internal sealed class WidgetForm : Form
 {
-    private const int DefaultWidth = 372;
-    private const int DefaultHeight = 252;
-    private const int SmallestWidth = 280;
-    private const int SmallestHeight = 200;
-    private const int InputHeight = 48;
-    private const int LargestWidth = 1200;
-    private const int LargestHeight = 900;
-    private const int ScreenMargin = 24;
-    private const int GripSize = 14;
+    private const int DefaultWidth = 580;
+    private const int SmallestWidth = 380;
+    private const int LargestWidth = 2400;
+
+    private const int GripWidth = 18;
+    private const int StatusWidth = 104;
+    private const int DirectionWidth = 52;
+    private const int ButtonWidth = 26;
+    private const int ResizeWidth = 6;
+
+    /// <summary>How far the bar sits from the corner of the working area.</summary>
+    private const int ScreenMargin = 8;
+
+    private const int DragThreshold = 4;
     private const double DimmedOpacity = 0.9d;
     private const int DragLeaveGraceMilliseconds = 150;
     private const int ClipboardAttempts = 3;
+
+    private const string IdleStatus = "перетащите текст";
 
     private readonly AppSettings _settings;
     private readonly ToolTip _tips = new();
     private readonly System.Windows.Forms.Timer _dragLeaveTimer;
 
-    private readonly Font _titleFont;
+    private readonly Font _fieldFont;
+    private readonly Font _smallFont;
     private readonly Font _glyphFont;
-    private readonly Font _resultFont;
-    private readonly Font _statusFont;
 
-    private readonly Panel _resizeGrip;
     private readonly TableLayoutPanel _root;
-    private readonly TableLayoutPanel _header;
-    private readonly Label _directionLabel;
-    private readonly Panel _headerDrag;
-    private readonly FlowLayoutPanel _headerButtons;
-    private readonly Label _swapButton;
+    private readonly Panel _grip;
+    private readonly Panel _fieldHost;
+    private readonly TextBox _field;
+    private readonly Label _statusLabel;
+    private readonly Label _directionButton;
     private readonly Label _pinButton;
     private readonly Label _closeButton;
-    private readonly TableLayoutPanel _body;
-    private readonly Panel _inputHost;
-    private readonly TextBox _inputBox;
-    private readonly Panel _resultHost;
-    private readonly TextBox _resultBox;
-    private readonly Label _hintLabel;
-    private readonly TableLayoutPanel _footer;
-    private readonly Label _statusLabel;
-    private readonly Label _dragOutLabel;
+    private readonly Panel _resizeStrip;
 
     private Palette _palette = Theme.Current;
     private CancellationTokenSource? _work;
@@ -59,10 +56,11 @@ internal sealed class WidgetForm : Form
     private bool _statusIsError;
     private bool _dropActive;
     private bool _windowActive;
-    private bool _draggingOut;
+    private bool _pressed;
+    private Point _pressOrigin;
     private bool _resizing;
-    private Point _resizeOrigin;
-    private Size _resizeStartSize;
+    private int _resizeOriginX;
+    private int _resizeStartWidth;
     private bool _extrasDisposed;
 
     /// <summary>Raised when the widget wants the tray icon to show a different state.</summary>
@@ -75,229 +73,129 @@ internal sealed class WidgetForm : Form
     {
         _settings = settings;
 
-        _titleFont = new Font("Segoe UI", 9F);
+        _fieldFont = new Font("Segoe UI", 10F);
+        _smallFont = new Font("Segoe UI", 8.25F);
         _glyphFont = new Font(Glyphs.FamilyName, Glyphs.Available ? 9F : 10F);
-        _resultFont = new Font("Segoe UI", 10.5F);
-        _statusFont = new Font("Segoe UI", 8.25F);
 
-        // Built before anything can lay out, so the grip is never touched while still null.
-        _resizeGrip = new Panel
+        _field = new TextBox
         {
-            Size = new Size(GripSize, GripSize),
-            Cursor = Cursors.SizeNWSE,
-            BackColor = Color.Transparent,
-        };
-
-        _directionLabel = new Label
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = false,
-            Font = _titleFont,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(11, 0, 6, 0),
-            Margin = Padding.Empty,
-        };
-
-        _headerDrag = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
-
-        _swapButton = CreateGlyphButton(Glyphs.Swap, "Направление: авто, EN → RU, RU → EN", (_, _) => CycleDirection());
-        _pinButton = CreateGlyphButton(Glyphs.Pin, "Поверх всех окон", (_, _) => TogglePin());
-        _closeButton = CreateGlyphButton(Glyphs.Close, "Скрыть виджет (Esc) — он останется в трее", (_, _) => HideWidget());
-
-        _headerButtons = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            Margin = Padding.Empty,
-            Padding = Padding.Empty,
-        };
-        _headerButtons.Controls.Add(_swapButton);
-        _headerButtons.Controls.Add(_pinButton);
-        _headerButtons.Controls.Add(_closeButton);
-
-        _header = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 3,
-            RowCount = 1,
-            Margin = Padding.Empty,
-            Padding = Padding.Empty,
-        };
-        _header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        _header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        _header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        _header.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        _header.Controls.Add(_directionLabel, 0, 0);
-        _header.Controls.Add(_headerDrag, 1, 0);
-        _header.Controls.Add(_headerButtons, 2, 0);
-
-        _inputBox = new TextBox
-        {
-            Dock = DockStyle.Fill,
+            // Multiline with no wrapping and a height of exactly one line: the bar never grows,
+            // and text that does not fit scrolls sideways instead of pushing the window open.
             Multiline = true,
-            WordWrap = true,
+            WordWrap = false,
             AcceptsReturn = true,
+            ScrollBars = ScrollBars.None,
             BorderStyle = BorderStyle.None,
-            ScrollBars = ScrollBars.Vertical,
-            Font = _resultFont,
-            PlaceholderText = "Напечатайте текст и нажмите Enter",
-        };
-        _inputBox.KeyDown += OnInputKeyDown;
-
-        _inputHost = new Panel
-        {
-            Dock = DockStyle.Fill,
-            Margin = new Padding(0, 0, 0, 6),
-            Padding = new Padding(8, 6, 6, 6),
-        };
-        _inputHost.Controls.Add(_inputBox);
-        _inputHost.Paint += OnInputHostPaint;
-
-        _resultBox = new TextBox
-        {
-            Dock = DockStyle.Fill,
-            Multiline = true,
-            ReadOnly = true,
-            WordWrap = true,
-            BorderStyle = BorderStyle.None,
-            ScrollBars = ScrollBars.Vertical,
-            Font = _resultFont,
 
             // Keeps the translation visibly selected even while another window has the focus.
             HideSelection = false,
+            Font = _fieldFont,
+            PlaceholderText = "Перетащите или напечатайте текст — Enter переведёт",
         };
+        _field.KeyDown += OnFieldKeyDown;
 
-        _hintLabel = new Label
+        _fieldHost = new Panel
         {
             Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleCenter,
-            Font = _titleFont,
-            Text = "Перетащите сюда текст мышью\nили напечатайте сверху и нажмите Enter",
+            Margin = new Padding(0, 6, 0, 6),
+            Padding = new Padding(9, 3, 9, 3),
         };
+        _fieldHost.Controls.Add(_field);
+        _fieldHost.Paint += OnFieldHostPaint;
+        _fieldHost.Resize += (_, _) => LayoutField();
+        _fieldHost.Click += (_, _) => FocusField();
 
-        _resultHost = new Panel
+        _grip = new Panel
         {
             Dock = DockStyle.Fill,
             Margin = Padding.Empty,
-            Padding = new Padding(8, 6, 6, 6),
+            Cursor = Cursors.SizeAll,
         };
-        _resultHost.Controls.Add(_hintLabel);
-        _resultHost.Controls.Add(_resultBox);
-        _hintLabel.BringToFront();
-        _resultHost.Paint += OnResultHostPaint;
-
-        _body = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 2,
-            Margin = Padding.Empty,
-            Padding = new Padding(10, 6, 10, 4),
-        };
-        _body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        _body.RowStyles.Add(new RowStyle(SizeType.Absolute, InputHeight));
-        _body.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        _body.Controls.Add(_inputHost, 0, 0);
-        _body.Controls.Add(_resultHost, 0, 1);
+        _grip.Paint += OnGripPaint;
 
         _statusLabel = new Label
         {
             Dock = DockStyle.Fill,
             AutoSize = false,
-            Font = _statusFont,
-            TextAlign = ContentAlignment.MiddleLeft,
+            Font = _smallFont,
+            TextAlign = ContentAlignment.MiddleRight,
             AutoEllipsis = true,
-            Padding = new Padding(11, 0, 0, 0),
             Margin = Padding.Empty,
+            Padding = new Padding(0, 0, 8, 0),
         };
 
-        _dragOutLabel = new Label
-        {
-            AutoSize = true,
-            Anchor = AnchorStyles.None,
-            Font = _statusFont,
-            Text = "⇗ перетащить",
-            Cursor = Cursors.Hand,
-            Margin = new Padding(6, 0, 20, 0),
-        };
-        _dragOutLabel.MouseDown += OnDragOutMouseDown;
-        _tips.SetToolTip(_dragOutLabel, "Перетащите перевод мышью прямо в нужное окно");
-
-        _footer = new TableLayoutPanel
+        _directionButton = new Label
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 1,
+            AutoSize = false,
+            Font = _smallFont,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Cursor = Cursors.Hand,
             Margin = Padding.Empty,
-            Padding = Padding.Empty,
         };
-        _footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        _footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        _footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        _footer.Controls.Add(_statusLabel, 0, 0);
-        _footer.Controls.Add(_dragOutLabel, 1, 0);
+        _directionButton.Click += (_, _) => CycleDirection();
+        _tips.SetToolTip(_directionButton, "Направление перевода: авто, EN → RU, RU → EN");
+
+        _pinButton = CreateGlyphButton(Glyphs.Pin, "Поверх всех окон", (_, _) => TogglePin());
+        _closeButton = CreateGlyphButton(Glyphs.Close, "Скрыть виджет (Esc) — он останется в трее", (_, _) => HideWidget());
+
+        _resizeStrip = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Margin = Padding.Empty,
+            Cursor = Cursors.SizeWE,
+        };
+        _resizeStrip.MouseDown += OnResizeMouseDown;
+        _resizeStrip.MouseMove += OnResizeMouseMove;
+        _resizeStrip.MouseUp += OnResizeMouseUp;
 
         _root = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 3,
+            ColumnCount = 7,
+            RowCount = 1,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
+        _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, GripWidth));
         _root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 32F));
+        _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, StatusWidth));
+        _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, DirectionWidth));
+        _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, ButtonWidth));
+        _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, ButtonWidth));
+        _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, ResizeWidth));
         _root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26F));
-        _root.Controls.Add(_header, 0, 0);
-        _root.Controls.Add(_body, 0, 1);
-        _root.Controls.Add(_footer, 0, 2);
+        _root.Controls.Add(_grip, 0, 0);
+        _root.Controls.Add(_fieldHost, 1, 0);
+        _root.Controls.Add(_statusLabel, 2, 0);
+        _root.Controls.Add(_directionButton, 3, 0);
+        _root.Controls.Add(_pinButton, 4, 0);
+        _root.Controls.Add(_closeButton, 5, 0);
+        _root.Controls.Add(_resizeStrip, 6, 0);
 
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
-        MinimumSize = new Size(SmallestWidth, SmallestHeight);
-        ClientSize = new Size(DefaultWidth, DefaultHeight);
 
         // One pixel of padding all round leaves room for the border drawn in OnPaint.
         Padding = new Padding(1);
         KeyPreview = true;
         DoubleBuffered = true;
         Text = "Translatorlight";
+        ClientSize = new Size(DefaultWidth, 42);
 
         Controls.Add(_root);
-        Controls.Add(_resizeGrip);
-        _resizeGrip.BringToFront();
-        _resizeGrip.Paint += OnGripPaint;
-        _resizeGrip.MouseDown += OnGripMouseDown;
-        _resizeGrip.MouseMove += OnGripMouseMove;
-        _resizeGrip.MouseUp += OnGripMouseUp;
 
-        _directionLabel.MouseDown += OnHeaderMouseDown;
-        _headerDrag.MouseDown += OnHeaderMouseDown;
+        _field.Enter += (_, _) => _fieldHost.Invalidate();
+        _field.Leave += (_, _) => _fieldHost.Invalidate();
 
-        _inputBox.Enter += (_, _) => _inputHost.Invalidate();
-        _inputBox.Leave += (_, _) => _inputHost.Invalidate();
-
-        // A click on any empty part of the widget lands in the input box, so the widget can be
-        // typed into without aiming at the box itself.
-        foreach (Control control in new Control[] { this, _headerDrag, _body, _footer, _statusLabel, _resultHost, _hintLabel })
-        {
-            control.Click += (_, _) => FocusInput();
-        }
-
-        _resultBox.Click += (_, _) =>
-        {
-            if (_resultBox.TextLength == 0)
-            {
-                FocusInput();
-            }
-        };
+        // The grip and the empty part of the bar both move the window when dragged and put the
+        // caret in the field when merely clicked.
+        AttachDragOrFocus(this);
+        AttachDragOrFocus(_grip);
+        AttachDragOrFocus(_statusLabel);
 
         _dragLeaveTimer = new System.Windows.Forms.Timer { Interval = DragLeaveGraceMilliseconds };
         _dragLeaveTimer.Tick += (_, _) =>
@@ -306,14 +204,12 @@ internal sealed class WidgetForm : Form
             SetDropActive(false);
         };
 
-        Resize += (_, _) => PositionGrip();
-        ResizeEnd += (_, _) => SavePlacement();
+        DpiChanged += (_, _) => ApplyBarHeight();
 
         EnableDropTarget(this);
         ApplyTheme();
         ApplySettings();
-        ShowStatus("Перетащите текст или напечатайте его сверху", error: false);
-        PositionGrip();
+        ShowStatus(IdleStatus, error: false, "Перетащите текст на полоску или напечатайте его здесь");
     }
 
     /// <summary>The widget must never steal the focus from the window the text came from.</summary>
@@ -348,7 +244,7 @@ internal sealed class WidgetForm : Form
         if (activate)
         {
             Activate();
-            FocusInput();
+            FocusField();
         }
     }
 
@@ -370,13 +266,21 @@ internal sealed class WidgetForm : Form
         }
     }
 
+    /// <summary>Parks the bar in the corner of the screen, right above the taskbar.</summary>
+    internal void SnapToTaskbar()
+    {
+        Rectangle work = Screen.FromControl(this).WorkingArea;
+        Location = new Point(work.Right - Width - ScreenMargin, work.Bottom - Height - ScreenMargin);
+        SavePlacement();
+    }
+
     /// <summary>Translates whatever is in the clipboard right now.</summary>
     internal void TranslateClipboard()
     {
         string text = TryGetClipboardText();
         if (text.Trim().Length == 0)
         {
-            ShowStatus("В буфере обмена нет текста.", error: true);
+            ShowStatus("буфер пуст", error: true, "В буфере обмена нет текста.");
             SetState(IconState.Error);
             return;
         }
@@ -384,46 +288,10 @@ internal sealed class WidgetForm : Form
         Translate(text);
     }
 
-    /// <summary>Starts a translation; the result lands in the widget when it arrives.</summary>
+    /// <summary>Starts a translation; the result lands in the bar when it arrives.</summary>
     internal void Translate(string text)
     {
         _ = TranslateAsync(text);
-    }
-
-    /// <summary>Puts the caret in the input box, so the widget can be typed into straight away.</summary>
-    private void FocusInput()
-    {
-        if (!_inputBox.Focused)
-        {
-            _inputBox.Focus();
-        }
-
-        _inputBox.Select(_inputBox.TextLength, 0);
-    }
-
-    private void OnInputKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.KeyCode != Keys.Enter || e.Shift)
-        {
-            // Shift+Enter is left to the box as an ordinary line break.
-            return;
-        }
-
-        e.Handled = true;
-        e.SuppressKeyPress = true;
-        TranslateInput();
-    }
-
-    private void TranslateInput()
-    {
-        string text = _inputBox.Text.Trim();
-        if (text.Length == 0)
-        {
-            ShowStatus("Напечатайте текст или перетащите его сюда.", error: true);
-            return;
-        }
-
-        Translate(text);
     }
 
     /// <summary>Re-reads the settings that change how the widget looks and behaves.</summary>
@@ -432,7 +300,7 @@ internal sealed class WidgetForm : Form
         TopMost = _settings.AlwaysOnTop;
         _pinButton.Text = _settings.AlwaysOnTop ? Glyphs.Pin : Glyphs.Unpin;
         _tips.SetToolTip(_pinButton, _settings.AlwaysOnTop ? "Поверх всех окон: включено" : "Поверх всех окон: выключено");
-        UpdateDirectionLabel(null);
+        UpdateDirectionButton(null);
         UpdateOpacity();
     }
 
@@ -443,35 +311,25 @@ internal sealed class WidgetForm : Form
 
         BackColor = _palette.Window;
         _root.BackColor = _palette.Window;
+        _grip.BackColor = _palette.Window;
 
-        _header.BackColor = _palette.Header;
-        _headerDrag.BackColor = Color.Transparent;
-        _headerButtons.BackColor = Color.Transparent;
-        _directionLabel.BackColor = Color.Transparent;
-        _directionLabel.ForeColor = _palette.Muted;
+        _fieldHost.BackColor = _palette.Surface;
+        _field.BackColor = _palette.Surface;
+        _field.ForeColor = _palette.Text;
 
-        foreach (Label button in new[] { _swapButton, _pinButton, _closeButton })
+        _statusLabel.BackColor = Color.Transparent;
+        _statusLabel.ForeColor = _statusIsError ? _palette.Danger : _palette.Muted;
+
+        _directionButton.BackColor = Color.Transparent;
+        _directionButton.ForeColor = _palette.Muted;
+
+        foreach (Label button in new[] { _pinButton, _closeButton })
         {
             button.BackColor = Color.Transparent;
             button.ForeColor = _palette.Muted;
         }
 
-        _body.BackColor = _palette.Window;
-        _inputHost.BackColor = _palette.Surface;
-        _inputBox.BackColor = _palette.Surface;
-        _inputBox.ForeColor = _palette.Text;
-
-        _resultHost.BackColor = _palette.Surface;
-        _resultBox.BackColor = _palette.Surface;
-        _resultBox.ForeColor = _palette.Text;
-        _hintLabel.BackColor = _palette.Surface;
-        _hintLabel.ForeColor = _palette.Muted;
-
-        _footer.BackColor = _palette.Window;
-        _statusLabel.BackColor = Color.Transparent;
-        _statusLabel.ForeColor = _statusIsError ? _palette.Danger : _palette.Muted;
-        _dragOutLabel.BackColor = Color.Transparent;
-        _dragOutLabel.ForeColor = _palette.Muted;
+        _resizeStrip.BackColor = _palette.Window;
 
         Invalidate(true);
     }
@@ -485,8 +343,8 @@ internal sealed class WidgetForm : Form
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
+        ApplyBarHeight();
         RestorePlacement();
-        PositionGrip();
     }
 
     protected override void OnActivated(EventArgs e)
@@ -521,10 +379,11 @@ internal sealed class WidgetForm : Form
     {
         if (e.KeyCode == Keys.Escape)
         {
-            // Esc clears what was typed first, and hides the widget only once the box is empty.
-            if (_inputBox.Focused && _inputBox.TextLength > 0)
+            // Esc clears the line first, and hides the widget only once it is empty.
+            if (_field.TextLength > 0)
             {
-                _inputBox.Clear();
+                _field.Clear();
+                ShowStatus(IdleStatus, error: false);
             }
             else
             {
@@ -570,10 +429,46 @@ internal sealed class WidgetForm : Form
         _dragLeaveTimer.Dispose();
         _tips.Dispose();
 
-        _titleFont.Dispose();
+        _fieldFont.Dispose();
+        _smallFont.Dispose();
         _glyphFont.Dispose();
-        _resultFont.Dispose();
-        _statusFont.Dispose();
+    }
+
+    /// <summary>
+    /// The bar is exactly one line of the field font tall, whatever the font and the display
+    /// scaling say that is, and cannot be resized vertically.
+    /// </summary>
+    private void ApplyBarHeight()
+    {
+        double scale = DeviceDpi / 96d;
+        // Form padding, the host's margin and its padding, so the field lands exactly in the
+        // middle of the strip: 2 + 12 + 6 around one line of text plus two pixels of slack.
+        int height = _field.Font.Height + 22;
+
+        MinimumSize = new Size((int)Math.Round(SmallestWidth * scale), height);
+        MaximumSize = new Size((int)Math.Round(LargestWidth * scale), height);
+
+        if (ClientSize.Height != height)
+        {
+            ClientSize = new Size(ClientSize.Width, height);
+        }
+
+        LayoutField();
+    }
+
+    /// <summary>
+    /// A single-line text box has a height of its own; this centres it in the strip instead of
+    /// letting it sit against the top edge.
+    /// </summary>
+    private void LayoutField()
+    {
+        Rectangle area = _fieldHost.DisplayRectangle;
+        int height = _field.Font.Height + 2;
+        _field.SetBounds(
+            area.Left,
+            area.Top + Math.Max(0, (area.Height - height) / 2),
+            Math.Max(20, area.Width),
+            height);
     }
 
     private Label CreateGlyphButton(string glyph, string tooltip, EventHandler onClick)
@@ -581,8 +476,8 @@ internal sealed class WidgetForm : Form
         var button = new Label
         {
             Text = glyph,
+            Dock = DockStyle.Fill,
             AutoSize = false,
-            Size = new Size(30, 30),
             Font = _glyphFont,
             TextAlign = ContentAlignment.MiddleCenter,
             Cursor = Cursors.Hand,
@@ -594,6 +489,51 @@ internal sealed class WidgetForm : Form
         button.MouseLeave += (_, _) => button.BackColor = Color.Transparent;
         _tips.SetToolTip(button, tooltip);
         return button;
+    }
+
+    /// <summary>
+    /// A press that moves hands the window over to Windows to drag; a press that does not move
+    /// is an ordinary click, and puts the caret in the field.
+    /// </summary>
+    private void AttachDragOrFocus(Control control)
+    {
+        control.MouseDown += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                _pressed = true;
+                _pressOrigin = System.Windows.Forms.Cursor.Position;
+            }
+        };
+
+        control.MouseMove += (_, _) =>
+        {
+            if (!_pressed)
+            {
+                return;
+            }
+
+            Point now = System.Windows.Forms.Cursor.Position;
+            if (Math.Abs(now.X - _pressOrigin.X) + Math.Abs(now.Y - _pressOrigin.Y) < DragThreshold)
+            {
+                return;
+            }
+
+            _pressed = false;
+            NativeMethods.BeginWindowDrag(Handle);
+            SavePlacement();
+        };
+
+        control.MouseUp += (_, _) =>
+        {
+            if (!_pressed)
+            {
+                return;
+            }
+
+            _pressed = false;
+            FocusField();
+        };
     }
 
     private void EnableDropTarget(Control control)
@@ -614,7 +554,7 @@ internal sealed class WidgetForm : Form
     {
         _dragLeaveTimer.Stop();
 
-        bool accepted = !_draggingOut && DroppedText.CanAccept(e.Data);
+        bool accepted = DroppedText.CanAccept(e.Data);
         e.Effect = accepted ? DragDropEffects.Copy : DragDropEffects.None;
 
         if (accepted)
@@ -625,9 +565,7 @@ internal sealed class WidgetForm : Form
 
     private void OnWidgetDragOver(object? sender, DragEventArgs e)
     {
-        e.Effect = !_draggingOut && DroppedText.CanAccept(e.Data)
-            ? DragDropEffects.Copy
-            : DragDropEffects.None;
+        e.Effect = DroppedText.CanAccept(e.Data) ? DragDropEffects.Copy : DragDropEffects.None;
     }
 
     private void OnWidgetDragLeave(object? sender, EventArgs e)
@@ -643,15 +581,10 @@ internal sealed class WidgetForm : Form
         _dragLeaveTimer.Stop();
         SetDropActive(false);
 
-        if (_draggingOut)
-        {
-            return;
-        }
-
         string text = DroppedText.Extract(e.Data);
         if (text.Length == 0)
         {
-            ShowStatus("В том, что перетащили, не нашлось текста.", error: true);
+            ShowStatus("нет текста", error: true, "В том, что перетащили, не нашлось текста.");
             SetState(IconState.Error);
             return;
         }
@@ -659,22 +592,39 @@ internal sealed class WidgetForm : Form
         Translate(text);
     }
 
-    private void OnDragOutMouseDown(object? sender, MouseEventArgs e)
+    private void OnFieldKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Button != MouseButtons.Left || _resultBox.TextLength == 0)
+        if (e.KeyCode != Keys.Enter || e.Shift)
         {
             return;
         }
 
-        _draggingOut = true;
-        try
+        e.Handled = true;
+        e.SuppressKeyPress = true;
+        TranslateField();
+    }
+
+    private void TranslateField()
+    {
+        string text = _field.Text.Trim();
+        if (text.Length == 0)
         {
-            _dragOutLabel.DoDragDrop(_resultBox.Text, DragDropEffects.Copy);
+            ShowStatus("нечего переводить", error: true, "Напечатайте текст или перетащите его на полоску.");
+            return;
         }
-        finally
+
+        Translate(text);
+    }
+
+    /// <summary>Puts the caret in the field, so the widget can be typed into straight away.</summary>
+    private void FocusField()
+    {
+        if (!_field.Focused)
         {
-            _draggingOut = false;
+            _field.Focus();
         }
+
+        _field.Select(_field.TextLength, 0);
     }
 
     private async Task TranslateAsync(string text)
@@ -688,13 +638,12 @@ internal sealed class WidgetForm : Form
         CancellationToken token = work.Token;
 
         _sourceText = text;
-        ShowSource(text);
-        _hintLabel.Visible = false;
-        ShowStatus("Перевожу…", error: false);
+        ShowInField(text);
+        ShowStatus("перевожу…", error: false, "Перевожу…");
         SetState(IconState.Busy);
 
         TranslationDirection direction = Translator.Resolve(_settings.Direction, text);
-        UpdateDirectionLabel(direction);
+        UpdateDirectionButton(direction);
 
         try
         {
@@ -706,13 +655,13 @@ internal sealed class WidgetForm : Form
         }
         catch (OperationCanceledException)
         {
-            // A newer drop took over; whatever it is doing is already on screen.
+            // A newer request took over; whatever it is doing is already on screen.
         }
         catch (TranslationException ex)
         {
             if (!token.IsCancellationRequested)
             {
-                ShowStatus(Capitalise(ex.Message), error: true);
+                ShowStatus("не перевелось", error: true, Capitalise(ex.Message));
                 SetState(IconState.Error);
             }
         }
@@ -722,7 +671,7 @@ internal sealed class WidgetForm : Form
             // that says it could not translate.
             if (!token.IsCancellationRequested)
             {
-                ShowStatus("Не получилось перевести: " + ex.Message, error: true);
+                ShowStatus("не перевелось", error: true, "Не получилось перевести: " + ex.Message);
                 SetState(IconState.Error);
             }
         }
@@ -738,46 +687,49 @@ internal sealed class WidgetForm : Form
 
     private void ShowResult(TranslationOutcome outcome)
     {
-        _hintLabel.Visible = false;
-        _resultBox.Text = outcome.Text;
+        string display = ForField(outcome.Text);
+        _field.Text = display;
 
-        // The whole translation is left selected, so it can be dragged out or copied at once.
-        _resultBox.Select(0, _resultBox.TextLength);
+        // Selected from the far end, so the whole translation goes into Ctrl+C while the strip
+        // still shows its beginning rather than its tail.
+        NativeMethods.SelectAllShowingStart(_field.Handle, _field.TextLength);
 
-        bool copied = _settings.CopyToClipboard && TrySetClipboard(outcome.Text);
+        bool copied = _settings.CopyToClipboard && TrySetClipboard(display);
 
-        var status = new StringBuilder(copied
+        string details = copied
             ? "Перевод выделен и скопирован — жмите Ctrl+V"
-            : "Перевод выделен — Ctrl+C, чтобы скопировать");
+            : "Перевод выделен — Ctrl+C, чтобы скопировать";
 
         if (outcome.Truncated)
         {
-            status.Append(CultureInfo.CurrentCulture, $" · перевёл первые {Translator.MaxCharacters} знаков");
+            details += string.Create(CultureInfo.CurrentCulture, $". Перевёл первые {Translator.MaxCharacters} знаков");
         }
 
-        ShowStatus(status.ToString(), error: false);
-        UpdateDirectionLabel(outcome.Direction);
-        _tips.SetToolTip(_resultBox, "Перевод через " + outcome.Service);
+        ShowStatus(copied ? "скопировано" : "выделено", error: false, details);
+        UpdateDirectionButton(outcome.Direction);
+        _tips.SetToolTip(_field, "Оригинал: " + Shorten(_sourceText) + "\nПеревод через " + outcome.Service);
         SetState(IconState.Idle);
     }
 
-    /// <summary>Puts the text about to be translated into the input box, ready to be edited.</summary>
-    private void ShowSource(string text)
+    /// <summary>Puts the text about to be translated into the field, ready to be edited.</summary>
+    private void ShowInField(string text)
     {
-        if (!string.Equals(_inputBox.Text, text, StringComparison.Ordinal))
+        string display = ForField(text);
+        if (!string.Equals(_field.Text, display, StringComparison.Ordinal))
         {
-            _inputBox.Text = text;
+            _field.Text = display;
         }
 
-        _inputBox.Select(_inputBox.TextLength, 0);
+        _field.Select(_field.TextLength, 0);
+        _tips.SetToolTip(_field, Shorten(text));
     }
 
-    private void ShowStatus(string text, bool error)
+    private void ShowStatus(string text, bool error, string? details = null)
     {
         _statusIsError = error;
         _statusLabel.Text = text;
         _statusLabel.ForeColor = error ? _palette.Danger : _palette.Muted;
-        _tips.SetToolTip(_statusLabel, text);
+        _tips.SetToolTip(_statusLabel, details ?? text);
     }
 
     private void SetState(IconState state)
@@ -801,7 +753,7 @@ internal sealed class WidgetForm : Form
         };
 
         _settings.Save();
-        UpdateDirectionLabel(null);
+        UpdateDirectionButton(null);
         SettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -813,14 +765,25 @@ internal sealed class WidgetForm : Form
         SettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void UpdateDirectionLabel(TranslationDirection? resolved)
+    private void UpdateDirectionButton(TranslationDirection? resolved)
     {
-        _directionLabel.Text = _settings.Direction switch
+        _directionButton.Text = _settings.Direction switch
         {
-            AppSettings.DirectionEnglishToRussian => Translator.Describe(TranslationDirection.EnglishToRussian),
-            AppSettings.DirectionRussianToEnglish => Translator.Describe(TranslationDirection.RussianToEnglish),
-            _ => resolved is null ? "Авто EN ⇄ RU" : "Авто · " + Translator.Describe(resolved.Value),
+            AppSettings.DirectionEnglishToRussian => "EN→RU",
+            AppSettings.DirectionRussianToEnglish => "RU→EN",
+            _ => "АВТО",
         };
+
+        string explained = _settings.Direction switch
+        {
+            AppSettings.DirectionEnglishToRussian => "Всегда EN → RU",
+            AppSettings.DirectionRussianToEnglish => "Всегда RU → EN",
+            _ => resolved is null
+                ? "Авто: направление выбирается по тексту"
+                : "Авто: последний перевод " + Translator.Describe(resolved.Value),
+        };
+
+        _tips.SetToolTip(_directionButton, explained + ". Щелчок меняет направление");
     }
 
     private void SetDropActive(bool active)
@@ -832,8 +795,7 @@ internal sealed class WidgetForm : Form
 
         _dropActive = active;
         UpdateOpacity();
-        _inputHost.Invalidate();
-        _resultHost.Invalidate();
+        _fieldHost.Invalidate();
         Invalidate();
     }
 
@@ -846,46 +808,33 @@ internal sealed class WidgetForm : Form
         }
     }
 
-    private void OnHeaderMouseDown(object? sender, MouseEventArgs e)
-    {
-        if (e.Button == MouseButtons.Left)
-        {
-            NativeMethods.BeginWindowDrag(Handle);
-        }
-    }
-
-    private void OnResultHostPaint(object? sender, PaintEventArgs e) =>
-        PaintBoxBorder(e, _resultHost, focused: false);
-
-    private void OnInputHostPaint(object? sender, PaintEventArgs e) =>
-        PaintBoxBorder(e, _inputHost, _inputBox.Focused);
-
-    /// <summary>Draws the frame around one of the two boxes.</summary>
-    private void PaintBoxBorder(PaintEventArgs e, Control box, bool focused)
+    private void OnFieldHostPaint(object? sender, PaintEventArgs e)
     {
         if (_dropActive)
         {
             using var highlight = new Pen(_palette.Accent, 2f) { DashStyle = DashStyle.Dash };
-            e.Graphics.DrawRectangle(highlight, 1, 1, box.Width - 3, box.Height - 3);
+            e.Graphics.DrawRectangle(highlight, 1, 1, _fieldHost.Width - 3, _fieldHost.Height - 3);
             return;
         }
 
-        using var border = new Pen(focused ? _palette.Accent : _palette.Border);
-        e.Graphics.DrawRectangle(border, 0, 0, box.Width - 1, box.Height - 1);
+        using var border = new Pen(_field.Focused ? _palette.Accent : _palette.Border);
+        e.Graphics.DrawRectangle(border, 0, 0, _fieldHost.Width - 1, _fieldHost.Height - 1);
     }
 
     private void OnGripPaint(object? sender, PaintEventArgs e)
     {
         using var brush = new SolidBrush(_palette.Muted);
-        for (int line = 0; line < 3; line++)
+        int left = (_grip.Width - 5) / 2;
+        int top = (_grip.Height - 13) / 2;
+
+        for (int row = 0; row < 3; row++)
         {
-            int offset = line * 4;
-            e.Graphics.FillRectangle(brush, GripSize - 3 - offset, GripSize - 3, 2, 2);
-            e.Graphics.FillRectangle(brush, GripSize - 3, GripSize - 3 - offset, 2, 2);
+            e.Graphics.FillRectangle(brush, left, top + (row * 5), 2, 2);
+            e.Graphics.FillRectangle(brush, left + 4, top + (row * 5), 2, 2);
         }
     }
 
-    private void OnGripMouseDown(object? sender, MouseEventArgs e)
+    private void OnResizeMouseDown(object? sender, MouseEventArgs e)
     {
         if (e.Button != MouseButtons.Left)
         {
@@ -893,24 +842,22 @@ internal sealed class WidgetForm : Form
         }
 
         _resizing = true;
-        _resizeOrigin = System.Windows.Forms.Cursor.Position;
-        _resizeStartSize = Size;
+        _resizeOriginX = System.Windows.Forms.Cursor.Position.X;
+        _resizeStartWidth = Width;
     }
 
-    private void OnGripMouseMove(object? sender, MouseEventArgs e)
+    private void OnResizeMouseMove(object? sender, MouseEventArgs e)
     {
         if (!_resizing)
         {
             return;
         }
 
-        Point now = System.Windows.Forms.Cursor.Position;
-        Size = new Size(
-            Math.Clamp(_resizeStartSize.Width + (now.X - _resizeOrigin.X), SmallestWidth, LargestWidth),
-            Math.Clamp(_resizeStartSize.Height + (now.Y - _resizeOrigin.Y), SmallestHeight, LargestHeight));
+        int wanted = _resizeStartWidth + (System.Windows.Forms.Cursor.Position.X - _resizeOriginX);
+        Width = Math.Clamp(wanted, MinimumSize.Width, MaximumSize.Width);
     }
 
-    private void OnGripMouseUp(object? sender, MouseEventArgs e)
+    private void OnResizeMouseUp(object? sender, MouseEventArgs e)
     {
         if (!_resizing)
         {
@@ -921,35 +868,24 @@ internal sealed class WidgetForm : Form
         SavePlacement();
     }
 
-    private void PositionGrip()
-    {
-        _resizeGrip.Location = new Point(
-            Math.Max(0, ClientSize.Width - _resizeGrip.Width - 2),
-            Math.Max(0, ClientSize.Height - _resizeGrip.Height - 2));
-    }
-
     private void RestorePlacement()
     {
-        if (_settings.WindowWidth is int width && _settings.WindowHeight is int height)
-        {
-            Size = new Size(
-                Math.Clamp(width, SmallestWidth, LargestWidth),
-                Math.Clamp(height, SmallestHeight, LargestHeight));
-        }
+        int fallbackWidth = (int)Math.Round(DefaultWidth * DeviceDpi / 96d);
+        Width = Math.Clamp(_settings.WindowWidth ?? fallbackWidth, MinimumSize.Width, MaximumSize.Width);
 
         Rectangle work = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
-        var fallback = new Point(work.Right - Width - ScreenMargin, work.Bottom - Height - ScreenMargin);
+        var corner = new Point(work.Right - Width - ScreenMargin, work.Bottom - Height - ScreenMargin);
 
         if (_settings.WindowX is not int x || _settings.WindowY is not int y)
         {
-            Location = fallback;
+            Location = corner;
             return;
         }
 
         // A monitor that has been unplugged must not take the widget off screen with it.
         var wanted = new Rectangle(new Point(x, y), Size);
         bool onScreen = Screen.AllScreens.Any(screen => screen.WorkingArea.IntersectsWith(wanted));
-        Location = onScreen ? wanted.Location : fallback;
+        Location = onScreen ? wanted.Location : corner;
     }
 
     private void SavePlacement()
@@ -962,8 +898,17 @@ internal sealed class WidgetForm : Form
         _settings.WindowX = Location.X;
         _settings.WindowY = Location.Y;
         _settings.WindowWidth = Width;
-        _settings.WindowHeight = Height;
         _settings.Save();
+    }
+
+    /// <summary>Windows text boxes want CRLF; anything else shows up as a stray box.</summary>
+    private static string ForField(string text) =>
+        text.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", "\r\n");
+
+    private static string Shorten(string text)
+    {
+        string oneLine = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return oneLine.Length > 300 ? oneLine[..300] + "…" : oneLine;
     }
 
     private static string Capitalise(string text) =>

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Draws docs/preview.png - the picture of the widget used in the README.
 
-It is a mock-up, not a screenshot: the widget is laid out exactly as WidgetForm lays it out,
+It is a mock-up, not a screenshot: the strip is laid out exactly as WidgetForm lays it out,
 so the picture can be regenerated without a Windows machine.
 
     pip install Pillow
@@ -15,120 +15,94 @@ from PIL import Image, ImageDraw, ImageFont
 OUTPUT = Path(__file__).resolve().parent.parent / "docs" / "preview.png"
 
 SCALE = 2
-WIDTH, HEIGHT = 372, 252
-HEADER = 32
-FOOTER = 26
-INPUT = 48
-MARGIN = 28
+PAGE_WIDTH, PAGE_HEIGHT = 760, 132
 
+# The bar, in the same units WidgetForm uses.
+BAR_WIDTH, BAR_HEIGHT = 580, 42
+GRIP, STATUS, DIRECTION, BUTTON, RESIZE = 18, 104, 52, 26, 6
+
+TASKBAR_HEIGHT = 48
+GAP = 8
+
+DESKTOP = (0x30, 0x4A, 0x6E)
+TASKBAR = (0xF1, 0xF1, 0xF5)
 WINDOW = (0xF6, 0xF6, 0xF9)
-HEADER_FILL = (0xEA, 0xEA, 0xF0)
 SURFACE = (0xFF, 0xFF, 0xFF)
 BORDER = (0xD3, 0xD3, 0xDB)
 TEXT = (0x1A, 0x1A, 0x1F)
 MUTED = (0x69, 0x69, 0x75)
-SELECTION = (0xCD, 0xDE, 0xFB)
 ACCENT = (0x2F, 0x6F, 0xEC)
-PAGE = (0xE8, 0xE8, 0xEE)
+SELECTION = (0xCD, 0xDE, 0xFB)
 
-SOURCE = "Type here, or drop text on the widget."
-RESULT = "Напечатайте здесь или бросьте текст на виджет."
+RESULT = "Перетащите текст на полоску, и перевод встанет на его место — целиком выделенный."
 
 REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
-def font(path, points):
-    if not Path(path).exists():
-        raise SystemExit(f"Font not found: {path}")
-    return ImageFont.truetype(path, int(round(points * SCALE)))
-
-
-def wrap(draw, text, typeface, limit):
-    lines, current = [], ""
-    for word in text.split():
-        candidate = f"{current} {word}".strip()
-        if draw.textlength(candidate, font=typeface) <= limit or not current:
-            current = candidate
-        else:
-            lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
-    return lines
+def font(points):
+    if not Path(REGULAR).exists():
+        raise SystemExit(f"Font not found: {REGULAR}")
+    return ImageFont.truetype(REGULAR, int(round(points * SCALE)))
 
 
 def main():
-    width = (WIDTH + MARGIN * 2) * SCALE
-    height = (HEIGHT + MARGIN * 2) * SCALE
-    image = Image.new("RGB", (width, height), PAGE)
+    image = Image.new("RGB", (PAGE_WIDTH * SCALE, PAGE_HEIGHT * SCALE), DESKTOP)
     draw = ImageDraw.Draw(image)
 
-    left, top = MARGIN * SCALE, MARGIN * SCALE
-    right, bottom = left + WIDTH * SCALE, top + HEIGHT * SCALE
+    body = font(10)
+    small = font(8.25)
 
-    # The window itself, with the rounded corners Windows 11 gives it.
-    draw.rounded_rectangle((left, top, right, bottom), radius=8 * SCALE, fill=WINDOW, outline=BORDER)
-    draw.rounded_rectangle((left, top, right, top + HEADER * SCALE), radius=8 * SCALE, fill=HEADER_FILL)
-    draw.rectangle((left, top + (HEADER - 8) * SCALE, right, top + HEADER * SCALE), fill=HEADER_FILL)
+    # A hint of the taskbar the strip is meant to sit on.
+    taskbar_top = (PAGE_HEIGHT - TASKBAR_HEIGHT) * SCALE
+    draw.rectangle((0, taskbar_top, PAGE_WIDTH * SCALE, PAGE_HEIGHT * SCALE), fill=TASKBAR)
+    for index in range(5):
+        left = (PAGE_WIDTH / 2 - 60 + index * 26) * SCALE
+        draw.rounded_rectangle((left, taskbar_top + 14 * SCALE, left + 18 * SCALE, taskbar_top + 32 * SCALE),
+                               radius=4 * SCALE, fill=(0xC8, 0xC8, 0xD2))
 
-    small = font(REGULAR, 9)
-    tiny = font(REGULAR, 8)
-    body = font(REGULAR, 10.5)
+    # The strip itself, parked in the corner just above the taskbar.
+    left = (PAGE_WIDTH - BAR_WIDTH - 20) * SCALE
+    top = (PAGE_HEIGHT - TASKBAR_HEIGHT - GAP - BAR_HEIGHT) * SCALE
+    right = left + BAR_WIDTH * SCALE
+    bottom = top + BAR_HEIGHT * SCALE
+    draw.rounded_rectangle((left, top, right, bottom), radius=7 * SCALE, fill=WINDOW, outline=BORDER)
 
-    draw.text((left + 11 * SCALE, top + HEADER * SCALE / 2), "Авто · EN → RU",
-              font=small, fill=MUTED, anchor="lm")
+    middle = (top + bottom) / 2
 
-    # The three header buttons: swap, pin, hide.
-    centre = top + HEADER * SCALE / 2
-    swap = right - 75 * SCALE
-    draw.line((swap - 5 * SCALE, centre - 2 * SCALE, swap + 5 * SCALE, centre - 2 * SCALE), fill=MUTED, width=SCALE)
-    draw.line((swap + 2 * SCALE, centre - 5 * SCALE, swap + 5 * SCALE, centre - 2 * SCALE), fill=MUTED, width=SCALE)
-    draw.line((swap - 5 * SCALE, centre + 2 * SCALE, swap + 5 * SCALE, centre + 2 * SCALE), fill=MUTED, width=SCALE)
-    draw.line((swap - 5 * SCALE, centre + 2 * SCALE, swap - 2 * SCALE, centre + 5 * SCALE), fill=MUTED, width=SCALE)
+    # The grip that drags the strip around.
+    grip_left = left + 7 * SCALE
+    for row in range(3):
+        for column in range(2):
+            x = grip_left + column * 4 * SCALE
+            y = middle - 6 * SCALE + row * 5 * SCALE
+            draw.rectangle((x, y, x + 2 * SCALE - 1, y + 2 * SCALE - 1), fill=MUTED)
 
-    pin = right - 45 * SCALE
-    draw.ellipse((pin - 4 * SCALE, centre - 6 * SCALE, pin + 4 * SCALE, centre + 2 * SCALE),
-                 outline=MUTED, width=SCALE)
-    draw.line((pin, centre + 2 * SCALE, pin, centre + 6 * SCALE), fill=MUTED, width=SCALE)
+    # The one line everything happens in, drawn separately so the text is clipped by its edge.
+    field_left = left + GRIP * SCALE
+    field_right = right - (STATUS + DIRECTION + BUTTON * 2 + RESIZE) * SCALE
+    field_top = top + 6 * SCALE
+    field_bottom = bottom - 6 * SCALE
+    draw.rounded_rectangle((field_left, field_top, field_right, field_bottom), radius=2 * SCALE,
+                           fill=SURFACE, outline=ACCENT)
 
-    close = right - 17 * SCALE
-    draw.line((close - 4 * SCALE, centre - 4 * SCALE, close + 4 * SCALE, centre + 4 * SCALE), fill=MUTED, width=SCALE)
-    draw.line((close + 4 * SCALE, centre - 4 * SCALE, close - 4 * SCALE, centre + 4 * SCALE), fill=MUTED, width=SCALE)
+    field = Image.new("RGB", (int(field_right - field_left) - 2 * SCALE, int(field_bottom - field_top) - 2 * SCALE), SURFACE)
+    field_draw = ImageDraw.Draw(field)
+    length = field_draw.textlength(RESULT, font=body)
+    field_draw.rectangle((9 * SCALE, 2 * SCALE, 9 * SCALE + length, field.height - 2 * SCALE), fill=SELECTION)
+    field_draw.text((9 * SCALE, field.height / 2), RESULT, font=body, fill=TEXT, anchor="lm")
+    image.paste(field, (int(field_left) + SCALE, int(field_top) + SCALE))
 
-    # The box that is typed into, with the caret sitting after the text.
-    input_top = top + (HEADER + 6) * SCALE
-    input_bottom = input_top + (INPUT - 6) * SCALE
-    draw.rectangle((left + 10 * SCALE, input_top, right - 10 * SCALE, input_bottom),
-                   fill=SURFACE, outline=ACCENT)
+    # What just happened, the direction, and the two buttons.
+    draw.text((field_right + (STATUS - 8) * SCALE, middle), "скопировано", font=small, fill=MUTED, anchor="rm")
+    draw.text((field_right + (STATUS + DIRECTION / 2) * SCALE, middle), "АВТО", font=small, fill=MUTED, anchor="mm")
 
-    typed_left = left + 18 * SCALE
-    typed_top = input_top + 8 * SCALE
-    draw.text((typed_left, typed_top), SOURCE, font=body, fill=TEXT)
-    caret = typed_left + draw.textlength(SOURCE, font=body) + 2 * SCALE
-    draw.line((caret, typed_top, caret, typed_top + 15 * SCALE), fill=TEXT, width=SCALE)
+    pin = field_right + (STATUS + DIRECTION + BUTTON / 2) * SCALE
+    draw.ellipse((pin - 4 * SCALE, middle - 6 * SCALE, pin + 4 * SCALE, middle + 2 * SCALE), outline=MUTED, width=SCALE)
+    draw.line((pin, middle + 2 * SCALE, pin, middle + 6 * SCALE), fill=MUTED, width=SCALE)
 
-    # The translation, selected the moment it arrives.
-    result_top = input_bottom + 6 * SCALE
-    result_bottom = bottom - (FOOTER + 4) * SCALE
-    draw.rectangle((left + 10 * SCALE, result_top, right - 10 * SCALE, result_bottom),
-                   fill=SURFACE, outline=BORDER)
-
-    text_left = left + 18 * SCALE
-    line_height = 19 * SCALE
-    y = result_top + 10 * SCALE
-    for line in wrap(draw, RESULT, body, (WIDTH - 44) * SCALE):
-        length = draw.textlength(line, font=body)
-        draw.rectangle((text_left - 1 * SCALE, y - 2 * SCALE, text_left + length + 1 * SCALE, y + line_height - 4 * SCALE),
-                       fill=SELECTION)
-        draw.text((text_left, y), line, font=body, fill=TEXT)
-        y += line_height
-
-    # The footer says what just happened and offers the translation for dragging out.
-    footer_centre = bottom - FOOTER * SCALE / 2
-    draw.text((left + 11 * SCALE, footer_centre), "Перевод выделен и скопирован — жмите Ctrl+V",
-              font=tiny, fill=MUTED, anchor="lm")
-    draw.text((right - 20 * SCALE, footer_centre), "⇗ перетащить", font=tiny, fill=MUTED, anchor="rm")
+    close = field_right + (STATUS + DIRECTION + BUTTON + BUTTON / 2) * SCALE
+    draw.line((close - 4 * SCALE, middle - 4 * SCALE, close + 4 * SCALE, middle + 4 * SCALE), fill=MUTED, width=SCALE)
+    draw.line((close + 4 * SCALE, middle - 4 * SCALE, close - 4 * SCALE, middle + 4 * SCALE), fill=MUTED, width=SCALE)
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     image.save(OUTPUT, optimize=True)

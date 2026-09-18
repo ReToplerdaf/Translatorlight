@@ -22,8 +22,6 @@ internal sealed class AppSettings
 
     public int? WindowWidth { get; set; }
 
-    public int? WindowHeight { get; set; }
-
     /// <summary>Keep the widget above other windows, so there is always something to drop onto.</summary>
     public bool AlwaysOnTop { get; set; } = true;
 
@@ -112,11 +110,6 @@ internal sealed class AppSettings
         if (WindowWidth.HasValue && WindowWidth.Value <= 0)
         {
             WindowWidth = null;
-        }
-
-        if (WindowHeight.HasValue && WindowHeight.Value <= 0)
-        {
-            WindowHeight = null;
         }
     }
 }

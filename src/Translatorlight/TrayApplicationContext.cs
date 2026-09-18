@@ -62,6 +62,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             _showItem,
             new ToolStripMenuItem("Перевести из буфера", null, (_, _) => TranslateClipboard()),
+            new ToolStripMenuItem("Прижать к панели задач", null, (_, _) => SnapWidget()),
             new ToolStripSeparator(),
             _directionItem,
             _serviceItem,
@@ -111,6 +112,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         _widget.ShowWidget(activate: false);
         _widget.TranslateClipboard();
+    }
+
+    private void SnapWidget()
+    {
+        _widget.ShowWidget(activate: false);
+        _widget.SnapToTaskbar();
     }
 
     private void BuildDirectionMenu()
