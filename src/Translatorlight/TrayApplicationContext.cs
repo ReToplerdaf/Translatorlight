@@ -17,6 +17,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private readonly ToolStripMenuItem _showItem;
     private readonly ToolStripMenuItem _topMostItem;
+    private readonly ToolStripMenuItem _lockItem;
     private readonly ToolStripMenuItem _copyItem;
     private readonly ToolStripMenuItem _directionItem;
     private readonly ToolStripMenuItem _serviceItem;
@@ -47,6 +48,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
 
         _topMostItem = new ToolStripMenuItem("Поверх всех окон", null, (_, _) => ToggleTopMost());
+        _lockItem = new ToolStripMenuItem("Закрепить на месте", null, (_, _) => ToggleLock());
         _copyItem = new ToolStripMenuItem("Сразу копировать перевод", null, (_, _) => ToggleCopy());
         _dimItem = new ToolStripMenuItem("Приглушать, пока не активен", null, (_, _) => ToggleDim());
         _startHiddenItem = new ToolStripMenuItem("Запускаться свёрнутым", null, (_, _) => ToggleStartHidden());
@@ -68,6 +70,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _serviceItem,
             new ToolStripSeparator(),
             _topMostItem,
+            _lockItem,
             _copyItem,
             _dimItem,
             _startHiddenItem,
@@ -153,6 +156,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _settings.Direction = value;
         _settings.Save();
         _widget.ApplySettings();
+        UpdateTooltip();
         RefreshMenuState();
     }
 
@@ -166,6 +170,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private void ToggleTopMost()
     {
         _settings.AlwaysOnTop = !_settings.AlwaysOnTop;
+        _settings.Save();
+        _widget.ApplySettings();
+    }
+
+    private void ToggleLock()
+    {
+        _settings.LockedInPlace = !_settings.LockedInPlace;
         _settings.Save();
         _widget.ApplySettings();
     }
@@ -208,6 +219,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         _showItem.Text = _widget.Visible ? "Скрыть виджет" : "Показать виджет";
         _topMostItem.Checked = _settings.AlwaysOnTop;
+        _lockItem.Checked = _settings.LockedInPlace;
         _copyItem.Checked = _settings.CopyToClipboard;
         _dimItem.Checked = _settings.DimWhenInactive;
         _startHiddenItem.Checked = _settings.StartHidden;
@@ -279,11 +291,18 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void UpdateTooltip()
     {
+        string direction = _settings.Direction switch
+        {
+            AppSettings.DirectionEnglishToRussian => Translator.Describe(TranslationDirection.EnglishToRussian),
+            AppSettings.DirectionRussianToEnglish => Translator.Describe(TranslationDirection.RussianToEnglish),
+            _ => "авто EN ⇄ RU",
+        };
+
         string text = _state switch
         {
             IconState.Busy => "Translatorlight · перевожу…",
             IconState.Error => "Translatorlight · перевод не удался",
-            _ => "Translatorlight · перетащите текст на виджет",
+            _ => "Translatorlight · " + direction,
         };
 
         if (text.Length > MaxTooltipLength)

@@ -19,7 +19,7 @@ PAGE_WIDTH, PAGE_HEIGHT = 760, 132
 
 # The bar, in the same units WidgetForm uses.
 BAR_WIDTH, BAR_HEIGHT = 580, 42
-GRIP, STATUS, DIRECTION, BUTTON, RESIZE = 18, 104, 52, 26, 6
+GRIP, STATUS, BUTTON, RESIZE = 18, 104, 26, 6
 
 TASKBAR_HEIGHT = 48
 GAP = 8
@@ -79,7 +79,7 @@ def main():
 
     # The one line everything happens in, drawn separately so the text is clipped by its edge.
     field_left = left + GRIP * SCALE
-    field_right = right - (STATUS + DIRECTION + BUTTON * 2 + RESIZE) * SCALE
+    field_right = right - (STATUS + BUTTON * 2 + RESIZE) * SCALE
     field_top = top + 6 * SCALE
     field_bottom = bottom - 6 * SCALE
     draw.rounded_rectangle((field_left, field_top, field_right, field_bottom), radius=2 * SCALE,
@@ -92,15 +92,16 @@ def main():
     field_draw.text((9 * SCALE, field.height / 2), RESULT, font=body, fill=TEXT, anchor="lm")
     image.paste(field, (int(field_left) + SCALE, int(field_top) + SCALE))
 
-    # What just happened, the direction, and the two buttons.
+    # What just happened, the padlock and the cross.
     draw.text((field_right + (STATUS - 8) * SCALE, middle), "скопировано", font=small, fill=MUTED, anchor="rm")
-    draw.text((field_right + (STATUS + DIRECTION / 2) * SCALE, middle), "АВТО", font=small, fill=MUTED, anchor="mm")
 
-    pin = field_right + (STATUS + DIRECTION + BUTTON / 2) * SCALE
-    draw.ellipse((pin - 4 * SCALE, middle - 6 * SCALE, pin + 4 * SCALE, middle + 2 * SCALE), outline=MUTED, width=SCALE)
-    draw.line((pin, middle + 2 * SCALE, pin, middle + 6 * SCALE), fill=MUTED, width=SCALE)
+    lock = field_right + (STATUS + BUTTON / 2) * SCALE
+    draw.arc((lock - 3.5 * SCALE, middle - 8 * SCALE, lock + 3.5 * SCALE, middle - 1 * SCALE),
+             180, 360, fill=MUTED, width=SCALE)
+    draw.rounded_rectangle((lock - 5 * SCALE, middle - 2 * SCALE, lock + 5 * SCALE, middle + 6 * SCALE),
+                           radius=2 * SCALE, outline=MUTED, width=SCALE)
 
-    close = field_right + (STATUS + DIRECTION + BUTTON + BUTTON / 2) * SCALE
+    close = field_right + (STATUS + BUTTON + BUTTON / 2) * SCALE
     draw.line((close - 4 * SCALE, middle - 4 * SCALE, close + 4 * SCALE, middle + 4 * SCALE), fill=MUTED, width=SCALE)
     draw.line((close + 4 * SCALE, middle - 4 * SCALE, close - 4 * SCALE, middle + 4 * SCALE), fill=MUTED, width=SCALE)
 

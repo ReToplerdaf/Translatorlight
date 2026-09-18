@@ -14,11 +14,11 @@ internal static class Glyphs
 
     internal static string FamilyName => IconFamily ?? "Segoe UI";
 
-    internal static string Pin => Available ? "\uE718" : "^";
-
-    internal static string Unpin => Available ? "\uE77A" : "v";
-
     internal static string Close => Available ? "\uE8BB" : "\u2715";
+
+    internal static string Locked => Available ? "\uE72E" : "\u25A3";
+
+    internal static string Unlocked => Available ? "\uE785" : "\u25A2";
 
     private static string? ResolveFamily()
     {

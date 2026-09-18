@@ -17,7 +17,6 @@ internal sealed class WidgetForm : Form
 
     private const int GripWidth = 18;
     private const int StatusWidth = 104;
-    private const int DirectionWidth = 52;
     private const int ButtonWidth = 26;
     private const int ResizeWidth = 6;
 
@@ -39,13 +38,12 @@ internal sealed class WidgetForm : Form
     private readonly Font _smallFont;
     private readonly Font _glyphFont;
 
-    private readonly TableLayoutPanel _root;
-    private readonly Panel _grip;
-    private readonly Panel _fieldHost;
+    private readonly SmoothTable _root;
+    private readonly SmoothPanel _grip;
+    private readonly SmoothPanel _fieldHost;
     private readonly TextBox _field;
     private readonly Label _statusLabel;
-    private readonly Label _directionButton;
-    private readonly Label _pinButton;
+    private readonly Label _lockButton;
     private readonly Label _closeButton;
     private readonly Panel _resizeStrip;
 
@@ -94,7 +92,7 @@ internal sealed class WidgetForm : Form
         };
         _field.KeyDown += OnFieldKeyDown;
 
-        _fieldHost = new Panel
+        _fieldHost = new SmoothPanel
         {
             Dock = DockStyle.Fill,
             Margin = new Padding(0, 6, 0, 6),
@@ -105,11 +103,10 @@ internal sealed class WidgetForm : Form
         _fieldHost.Resize += (_, _) => LayoutField();
         _fieldHost.Click += (_, _) => FocusField();
 
-        _grip = new Panel
+        _grip = new SmoothPanel
         {
             Dock = DockStyle.Fill,
             Margin = Padding.Empty,
-            Cursor = Cursors.SizeAll,
         };
         _grip.Paint += OnGripPaint;
 
@@ -124,19 +121,7 @@ internal sealed class WidgetForm : Form
             Padding = new Padding(0, 0, 8, 0),
         };
 
-        _directionButton = new Label
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = false,
-            Font = _smallFont,
-            TextAlign = ContentAlignment.MiddleCenter,
-            Cursor = Cursors.Hand,
-            Margin = Padding.Empty,
-        };
-        _directionButton.Click += (_, _) => CycleDirection();
-        _tips.SetToolTip(_directionButton, "Направление перевода: авто, EN → RU, RU → EN");
-
-        _pinButton = CreateGlyphButton(Glyphs.Pin, "Поверх всех окон", (_, _) => TogglePin());
+        _lockButton = CreateGlyphButton(Glyphs.Unlocked, "Закрепить полоску на месте", (_, _) => ToggleLock());
         _closeButton = CreateGlyphButton(Glyphs.Close, "Скрыть виджет (Esc) — он останется в трее", (_, _) => HideWidget());
 
         _resizeStrip = new Panel
@@ -149,10 +134,10 @@ internal sealed class WidgetForm : Form
         _resizeStrip.MouseMove += OnResizeMouseMove;
         _resizeStrip.MouseUp += OnResizeMouseUp;
 
-        _root = new TableLayoutPanel
+        _root = new SmoothTable
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 7,
+            ColumnCount = 6,
             RowCount = 1,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
@@ -160,7 +145,6 @@ internal sealed class WidgetForm : Form
         _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, GripWidth));
         _root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, StatusWidth));
-        _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, DirectionWidth));
         _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, ButtonWidth));
         _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, ButtonWidth));
         _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, ResizeWidth));
@@ -168,10 +152,9 @@ internal sealed class WidgetForm : Form
         _root.Controls.Add(_grip, 0, 0);
         _root.Controls.Add(_fieldHost, 1, 0);
         _root.Controls.Add(_statusLabel, 2, 0);
-        _root.Controls.Add(_directionButton, 3, 0);
-        _root.Controls.Add(_pinButton, 4, 0);
-        _root.Controls.Add(_closeButton, 5, 0);
-        _root.Controls.Add(_resizeStrip, 6, 0);
+        _root.Controls.Add(_lockButton, 3, 0);
+        _root.Controls.Add(_closeButton, 4, 0);
+        _root.Controls.Add(_resizeStrip, 5, 0);
 
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -183,6 +166,7 @@ internal sealed class WidgetForm : Form
         Padding = new Padding(1);
         KeyPreview = true;
         DoubleBuffered = true;
+        ResizeRedraw = true;
         Text = "Translatorlight";
         ClientSize = new Size(DefaultWidth, 42);
 
@@ -298,9 +282,13 @@ internal sealed class WidgetForm : Form
     internal void ApplySettings()
     {
         TopMost = _settings.AlwaysOnTop;
-        _pinButton.Text = _settings.AlwaysOnTop ? Glyphs.Pin : Glyphs.Unpin;
-        _tips.SetToolTip(_pinButton, _settings.AlwaysOnTop ? "Поверх всех окон: включено" : "Поверх всех окон: выключено");
-        UpdateDirectionButton(null);
+
+        _lockButton.Text = _settings.LockedInPlace ? Glyphs.Locked : Glyphs.Unlocked;
+        _tips.SetToolTip(_lockButton, _settings.LockedInPlace
+            ? "Полоска закреплена и не перетаскивается. Щелчок открепит её"
+            : "Закрепить полоску на месте, чтобы не сдвинуть её случайно");
+
+        _grip.Cursor = _settings.LockedInPlace ? Cursors.Default : Cursors.SizeAll;
         UpdateOpacity();
     }
 
@@ -320,10 +308,7 @@ internal sealed class WidgetForm : Form
         _statusLabel.BackColor = Color.Transparent;
         _statusLabel.ForeColor = _statusIsError ? _palette.Danger : _palette.Muted;
 
-        _directionButton.BackColor = Color.Transparent;
-        _directionButton.ForeColor = _palette.Muted;
-
-        foreach (Label button in new[] { _pinButton, _closeButton })
+        foreach (Label button in new[] { _lockButton, _closeButton })
         {
             button.BackColor = Color.Transparent;
             button.ForeColor = _palette.Muted;
@@ -519,6 +504,11 @@ internal sealed class WidgetForm : Form
                 return;
             }
 
+            if (_settings.LockedInPlace)
+            {
+                return;
+            }
+
             _pressed = false;
             NativeMethods.BeginWindowDrag(Handle);
             SavePlacement();
@@ -643,7 +633,6 @@ internal sealed class WidgetForm : Form
         SetState(IconState.Busy);
 
         TranslationDirection direction = Translator.Resolve(_settings.Direction, text);
-        UpdateDirectionButton(direction);
 
         try
         {
@@ -706,7 +695,6 @@ internal sealed class WidgetForm : Form
         }
 
         ShowStatus(copied ? "скопировано" : "выделено", error: false, details);
-        UpdateDirectionButton(outcome.Direction);
         _tips.SetToolTip(_field, "Оригинал: " + Shorten(_sourceText) + "\nПеревод через " + outcome.Service);
         SetState(IconState.Idle);
     }
@@ -743,47 +731,12 @@ internal sealed class WidgetForm : Form
         StateChanged?.Invoke(this, state);
     }
 
-    private void CycleDirection()
+    private void ToggleLock()
     {
-        _settings.Direction = _settings.Direction switch
-        {
-            AppSettings.DirectionAuto => AppSettings.DirectionEnglishToRussian,
-            AppSettings.DirectionEnglishToRussian => AppSettings.DirectionRussianToEnglish,
-            _ => AppSettings.DirectionAuto,
-        };
-
-        _settings.Save();
-        UpdateDirectionButton(null);
-        SettingsChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void TogglePin()
-    {
-        _settings.AlwaysOnTop = !_settings.AlwaysOnTop;
+        _settings.LockedInPlace = !_settings.LockedInPlace;
         _settings.Save();
         ApplySettings();
         SettingsChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void UpdateDirectionButton(TranslationDirection? resolved)
-    {
-        _directionButton.Text = _settings.Direction switch
-        {
-            AppSettings.DirectionEnglishToRussian => "EN→RU",
-            AppSettings.DirectionRussianToEnglish => "RU→EN",
-            _ => "АВТО",
-        };
-
-        string explained = _settings.Direction switch
-        {
-            AppSettings.DirectionEnglishToRussian => "Всегда EN → RU",
-            AppSettings.DirectionRussianToEnglish => "Всегда RU → EN",
-            _ => resolved is null
-                ? "Авто: направление выбирается по тексту"
-                : "Авто: последний перевод " + Translator.Describe(resolved.Value),
-        };
-
-        _tips.SetToolTip(_directionButton, explained + ". Щелчок меняет направление");
     }
 
     private void SetDropActive(bool active)

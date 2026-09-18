@@ -25,6 +25,9 @@ internal sealed class AppSettings
     /// <summary>Keep the widget above other windows, so there is always something to drop onto.</summary>
     public bool AlwaysOnTop { get; set; } = true;
 
+    /// <summary>Hold the strip where it is: a drag on it moves nothing.</summary>
+    public bool LockedInPlace { get; set; }
+
     /// <summary>Put the translation into the clipboard as well, so Ctrl+V works straight away.</summary>
     public bool CopyToClipboard { get; set; } = true;
 
