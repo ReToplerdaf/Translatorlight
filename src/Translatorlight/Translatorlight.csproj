@@ -13,7 +13,7 @@
     <Product>Translatorlight</Product>
     <AssemblyTitle>Translatorlight</AssemblyTitle>
     <Description>Tray widget that translates text dropped onto it from English into Russian.</Description>
-    <Version>0.4.0</Version>
+    <Version>0.5.0</Version>
     <ApplicationIcon>Assets\translatorlight.ico</ApplicationIcon>
 
     <!-- Lets the project be built from Linux/macOS CI as well as from Windows. -->

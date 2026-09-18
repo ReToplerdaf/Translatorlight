@@ -15,9 +15,8 @@ internal sealed class WidgetForm : Form
     private const int SmallestWidth = 380;
     private const int LargestWidth = 2400;
 
-    private const int GripWidth = 18;
-    private const int StatusWidth = 104;
     private const int ButtonWidth = 26;
+    private const int LockColumn = 2;
     private const int ResizeWidth = 6;
 
     /// <summary>How far the bar sits from the corner of the working area.</summary>
@@ -28,7 +27,8 @@ internal sealed class WidgetForm : Form
     private const int DragLeaveGraceMilliseconds = 150;
     private const int ClipboardAttempts = 3;
 
-    private const string IdleStatus = "перетащите текст";
+    private const string IdleHint = "перетащите текст";
+    private const string BusyHint = "обрабатывается";
 
     private readonly AppSettings _settings;
     private readonly DesktopBar _dock;
@@ -40,9 +40,9 @@ internal sealed class WidgetForm : Form
     private readonly Font _glyphFont;
 
     private readonly SmoothTable _root;
-    private readonly SmoothPanel _grip;
     private readonly SmoothPanel _fieldHost;
     private readonly TextBox _field;
+    private readonly Label _fieldHint;
     private readonly Label _statusLabel;
     private readonly Label _lockButton;
     private readonly Label _closeButton;
@@ -53,6 +53,7 @@ internal sealed class WidgetForm : Form
     private IconState _state = IconState.Idle;
     private string _sourceText = string.Empty;
     private bool _statusIsError;
+    private float _lockColumnWidth = ButtonWidth;
     private bool _dropActive;
     private bool _windowActive;
     private bool _pressed;
@@ -90,9 +91,23 @@ internal sealed class WidgetForm : Form
             // Keeps the translation visibly selected even while another window has the focus.
             HideSelection = false,
             Font = _fieldFont,
-            PlaceholderText = "Перетащите или напечатайте текст — Enter переведёт",
+            PlaceholderText = IdleHint,
         };
         _field.KeyDown += OnFieldKeyDown;
+        _field.TextChanged += (_, _) => UpdateHint();
+        _field.Enter += (_, _) => UpdateHint();
+        _field.Leave += (_, _) => UpdateHint();
+
+        // The hint is a label laid over the empty field rather than only the placeholder text,
+        // so it is certain to be seen - including the one shown while a translation is on its way.
+        _fieldHint = new Label
+        {
+            AutoSize = false,
+            Font = _fieldFont,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Text = IdleHint,
+        };
+        _fieldHint.Click += (_, _) => FocusField();
 
         _fieldHost = new SmoothPanel
         {
@@ -100,27 +115,20 @@ internal sealed class WidgetForm : Form
             Margin = new Padding(0, 6, 0, 6),
             Padding = new Padding(9, 3, 9, 3),
         };
+        _fieldHost.Controls.Add(_fieldHint);
         _fieldHost.Controls.Add(_field);
+        _fieldHint.BringToFront();
         _fieldHost.Paint += OnFieldHostPaint;
         _fieldHost.Resize += (_, _) => LayoutField();
-        _fieldHost.Click += (_, _) => FocusField();
-
-        _grip = new SmoothPanel
-        {
-            Dock = DockStyle.Fill,
-            Margin = Padding.Empty,
-        };
-        _grip.Paint += OnGripPaint;
 
         _statusLabel = new Label
         {
-            Dock = DockStyle.Fill,
-            AutoSize = false,
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
             Font = _smallFont,
-            TextAlign = ContentAlignment.MiddleRight,
-            AutoEllipsis = true,
-            Margin = Padding.Empty,
-            Padding = new Padding(0, 0, 8, 0),
+            TextAlign = ContentAlignment.MiddleCenter,
+            Margin = new Padding(8, 0, 4, 0),
+            Text = string.Empty,
         };
 
         _lockButton = CreateGlyphButton(Glyphs.Unlocked, "Закрепить полоску на месте", (_, _) => ToggleLock());
@@ -139,24 +147,22 @@ internal sealed class WidgetForm : Form
         _root = new SmoothTable
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 6,
+            ColumnCount = 5,
             RowCount = 1,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
-        _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, GripWidth));
         _root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, StatusWidth));
+        _root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, ButtonWidth));
         _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, ButtonWidth));
         _root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, ResizeWidth));
         _root.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-        _root.Controls.Add(_grip, 0, 0);
-        _root.Controls.Add(_fieldHost, 1, 0);
-        _root.Controls.Add(_statusLabel, 2, 0);
-        _root.Controls.Add(_lockButton, 3, 0);
-        _root.Controls.Add(_closeButton, 4, 0);
-        _root.Controls.Add(_resizeStrip, 5, 0);
+        _root.Controls.Add(_fieldHost, 0, 0);
+        _root.Controls.Add(_statusLabel, 1, 0);
+        _root.Controls.Add(_lockButton, LockColumn, 0);
+        _root.Controls.Add(_closeButton, 3, 0);
+        _root.Controls.Add(_resizeStrip, 4, 0);
 
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -177,10 +183,12 @@ internal sealed class WidgetForm : Form
         _field.Enter += (_, _) => _fieldHost.Invalidate();
         _field.Leave += (_, _) => _fieldHost.Invalidate();
 
-        // The grip and the empty part of the bar both move the window when dragged and put the
-        // caret in the field when merely clicked.
+        // Everything that is not the field or a button moves the window when dragged and puts
+        // the caret in the field when merely clicked: the frame around the field, the bands
+        // above and below it, and the status corner.
         AttachDragOrFocus(this);
-        AttachDragOrFocus(_grip);
+        AttachDragOrFocus(_root);
+        AttachDragOrFocus(_fieldHost);
         AttachDragOrFocus(_statusLabel);
 
         _dragLeaveTimer = new System.Windows.Forms.Timer { Interval = DragLeaveGraceMilliseconds };
@@ -195,7 +203,7 @@ internal sealed class WidgetForm : Form
         EnableDropTarget(this);
         ApplyTheme();
         ApplySettings();
-        ShowStatus(IdleStatus, error: false, "Перетащите текст на полоску или напечатайте его здесь");
+        _tips.SetToolTip(_field, "Перетащите сюда текст или напечатайте его и нажмите Enter");
     }
 
     /// <summary>The widget must never steal the focus from the window the text came from.</summary>
@@ -276,8 +284,7 @@ internal sealed class WidgetForm : Form
         string text = TryGetClipboardText();
         if (text.Trim().Length == 0)
         {
-            ShowStatus("буфер пуст", error: true, "В буфере обмена нет текста.");
-            SetState(IconState.Error);
+            ShowError("буфер пуст", "В буфере обмена нет текста.");
             return;
         }
 
@@ -341,10 +348,26 @@ internal sealed class WidgetForm : Form
             ? "Полоска закреплена и не перетаскивается. Щелчок открепит её"
             : "Закрепить полоску на месте, чтобы не сдвинуть её случайно");
 
+        // The frame around the field is the handle, so it wears the move cursor while the
+        // strip can actually be moved. Over the text itself the caret cursor still wins.
         bool held = _settings.LockedInPlace || _dock.IsDocked;
-        _grip.Cursor = held ? Cursors.Default : Cursors.SizeAll;
+        _fieldHost.Cursor = held ? Cursors.Default : Cursors.SizeAll;
         _resizeStrip.Cursor = _dock.IsDocked ? Cursors.Default : Cursors.SizeWE;
+
+        // Docked, there is nothing left to lock: the shell holds the strip.
+        ColumnStyle lockColumn = _root.ColumnStyles[LockColumn];
+        if (lockColumn.Width > 0)
+        {
+            // Whatever the display scaling made of the column, that is its real width.
+            _lockColumnWidth = lockColumn.Width;
+        }
+
+        bool showLock = !_dock.IsDocked;
+        _lockButton.Visible = showLock;
+        lockColumn.Width = showLock ? _lockColumnWidth : 0;
+
         UpdateOpacity();
+        UpdateHint();
     }
 
     /// <summary>Repaints the widget in the current Windows colours.</summary>
@@ -354,11 +377,12 @@ internal sealed class WidgetForm : Form
 
         BackColor = _palette.Window;
         _root.BackColor = _palette.Window;
-        _grip.BackColor = _palette.Window;
 
         _fieldHost.BackColor = _palette.Surface;
         _field.BackColor = _palette.Surface;
         _field.ForeColor = _palette.Text;
+        _fieldHint.BackColor = _palette.Surface;
+        _fieldHint.ForeColor = _palette.Muted;
 
         _statusLabel.BackColor = Color.Transparent;
         _statusLabel.ForeColor = _statusIsError ? _palette.Danger : _palette.Muted;
@@ -446,7 +470,7 @@ internal sealed class WidgetForm : Form
             if (_field.TextLength > 0)
             {
                 _field.Clear();
-                ShowStatus(IdleStatus, error: false);
+                ClearError();
             }
             else
             {
@@ -529,11 +553,31 @@ internal sealed class WidgetForm : Form
     {
         Rectangle area = _fieldHost.DisplayRectangle;
         int height = _field.Font.Height + 2;
-        _field.SetBounds(
+        var bounds = new Rectangle(
             area.Left,
             area.Top + Math.Max(0, (area.Height - height) / 2),
             Math.Max(20, area.Width),
             height);
+
+        _field.Bounds = bounds;
+        _fieldHint.Bounds = bounds;
+    }
+
+    /// <summary>
+    /// The grey word inside the field: what to do while it is empty, and what is happening
+    /// while a translation is on its way.
+    /// </summary>
+    private void UpdateHint()
+    {
+        bool busy = _state == IconState.Busy;
+        string hint = busy ? BusyHint : IdleHint;
+
+        _fieldHint.Text = hint;
+        _field.PlaceholderText = hint;
+
+        // While the caret is in an empty field the hint steps aside - except when it is the one
+        // saying that the translation is being fetched.
+        _fieldHint.Visible = _field.TextLength == 0 && (busy || !_field.Focused);
     }
 
     private Label CreateGlyphButton(string glyph, string tooltip, EventHandler onClick)
@@ -654,8 +698,7 @@ internal sealed class WidgetForm : Form
         string text = DroppedText.Extract(e.Data);
         if (text.Length == 0)
         {
-            ShowStatus("нет текста", error: true, "В том, что перетащили, не нашлось текста.");
-            SetState(IconState.Error);
+            ShowError("нет текста", "В том, что перетащили, не нашлось текста.");
             return;
         }
 
@@ -679,7 +722,7 @@ internal sealed class WidgetForm : Form
         string text = _field.Text.Trim();
         if (text.Length == 0)
         {
-            ShowStatus("нечего переводить", error: true, "Напечатайте текст или перетащите его на полоску.");
+            // Nothing to translate and nothing worth saying about it; the hint already says it.
             return;
         }
 
@@ -708,9 +751,11 @@ internal sealed class WidgetForm : Form
         CancellationToken token = work.Token;
 
         _sourceText = text;
-        ShowInField(text);
-        ShowStatus("перевожу…", error: false, "Перевожу…");
+        ClearError();
         SetState(IconState.Busy);
+        _field.Clear();
+        UpdateHint();
+        _tips.SetToolTip(_field, Shorten(text));
 
         TranslationDirection direction = Translator.Resolve(_settings.Direction, text);
 
@@ -730,8 +775,7 @@ internal sealed class WidgetForm : Form
         {
             if (!token.IsCancellationRequested)
             {
-                ShowStatus("не перевелось", error: true, Capitalise(ex.Message));
-                SetState(IconState.Error);
+                ShowError("не перевелось", Capitalise(ex.Message));
             }
         }
         catch (Exception ex)
@@ -740,8 +784,7 @@ internal sealed class WidgetForm : Form
             // that says it could not translate.
             if (!token.IsCancellationRequested)
             {
-                ShowStatus("не перевелось", error: true, "Не получилось перевести: " + ex.Message);
-                SetState(IconState.Error);
+                ShowError("не перевелось", "Не получилось перевести: " + ex.Message);
             }
         }
         finally
@@ -757,6 +800,8 @@ internal sealed class WidgetForm : Form
     private void ShowResult(TranslationOutcome outcome)
     {
         string display = ForField(outcome.Text);
+        SetState(IconState.Idle);
+        ClearError();
         _field.Text = display;
 
         // Selected from the far end, so the whole translation goes into Ctrl+C while the strip
@@ -774,30 +819,46 @@ internal sealed class WidgetForm : Form
             details += string.Create(CultureInfo.CurrentCulture, $". Перевёл первые {Translator.MaxCharacters} знаков");
         }
 
-        ShowStatus(copied ? "скопировано" : "выделено", error: false, details);
-        _tips.SetToolTip(_field, "Оригинал: " + Shorten(_sourceText) + "\nПеревод через " + outcome.Service);
-        SetState(IconState.Idle);
+        _tips.SetToolTip(_field, details
+            + "\nОригинал: " + Shorten(_sourceText)
+            + "\nПеревод через " + outcome.Service);
+
+        UpdateHint();
     }
 
-    /// <summary>Puts the text about to be translated into the field, ready to be edited.</summary>
-    private void ShowInField(string text)
+    /// <summary>
+    /// The strip has no room for a running commentary, so only a failure is written out - short,
+    /// in red, with the whole of it in the tooltip. Everything else is said inside the field.
+    /// </summary>
+    private void ShowError(string text, string details)
     {
-        string display = ForField(text);
-        if (!string.Equals(_field.Text, display, StringComparison.Ordinal))
+        _statusIsError = true;
+        _statusLabel.Text = text;
+        _statusLabel.ForeColor = _palette.Danger;
+        _tips.SetToolTip(_statusLabel, details);
+
+        SetState(IconState.Error);
+
+        // The text that failed comes back, so a hiccup in the network costs nothing typed.
+        if (_field.TextLength == 0 && _sourceText.Length > 0)
         {
-            _field.Text = display;
+            _field.Text = ForField(_sourceText);
+            _field.Select(_field.TextLength, 0);
         }
 
-        _field.Select(_field.TextLength, 0);
-        _tips.SetToolTip(_field, Shorten(text));
+        UpdateHint();
     }
 
-    private void ShowStatus(string text, bool error, string? details = null)
+    private void ClearError()
     {
-        _statusIsError = error;
-        _statusLabel.Text = text;
-        _statusLabel.ForeColor = error ? _palette.Danger : _palette.Muted;
-        _tips.SetToolTip(_statusLabel, details ?? text);
+        if (!_statusIsError)
+        {
+            return;
+        }
+
+        _statusIsError = false;
+        _statusLabel.Text = string.Empty;
+        _tips.SetToolTip(_statusLabel, string.Empty);
     }
 
     private void SetState(IconState state)
@@ -809,6 +870,7 @@ internal sealed class WidgetForm : Form
 
         _state = state;
         StateChanged?.Invoke(this, state);
+        UpdateHint();
     }
 
     private void ToggleLock()
@@ -852,19 +914,6 @@ internal sealed class WidgetForm : Form
 
         using var border = new Pen(_field.Focused ? _palette.Accent : _palette.Border);
         e.Graphics.DrawRectangle(border, 0, 0, _fieldHost.Width - 1, _fieldHost.Height - 1);
-    }
-
-    private void OnGripPaint(object? sender, PaintEventArgs e)
-    {
-        using var brush = new SolidBrush(_palette.Muted);
-        int left = (_grip.Width - 5) / 2;
-        int top = (_grip.Height - 13) / 2;
-
-        for (int row = 0; row < 3; row++)
-        {
-            e.Graphics.FillRectangle(brush, left, top + (row * 5), 2, 2);
-            e.Graphics.FillRectangle(brush, left + 4, top + (row * 5), 2, 2);
-        }
     }
 
     private void OnResizeMouseDown(object? sender, MouseEventArgs e)

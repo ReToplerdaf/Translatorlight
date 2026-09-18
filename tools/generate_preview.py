@@ -21,7 +21,7 @@ PAGE_WIDTH, PAGE_HEIGHT = 760, 132
 
 # The bar, in the same units WidgetForm uses.
 BAR_WIDTH, BAR_HEIGHT = 580, 42
-GRIP, STATUS, BUTTON, RESIZE = 18, 104, 26, 6
+EDGE, BUTTON, RESIZE = 6, 26, 6
 
 TASKBAR_HEIGHT = 48
 GAP = 8
@@ -73,29 +73,13 @@ def docked():
     draw.rectangle((0, bar_top, page_width * SCALE, bar_bottom), fill=WINDOW, outline=BORDER)
     middle = (bar_top + bar_bottom) / 2
 
-    for row in range(3):
-        for column in range(2):
-            x = 7 * SCALE + column * 4 * SCALE
-            y = middle - 6 * SCALE + row * 5 * SCALE
-            draw.rectangle((x, y, x + 2 * SCALE - 1, y + 2 * SCALE - 1), fill=MUTED)
-
-    field_left = GRIP * SCALE
-    field_right = (page_width - STATUS - BUTTON * 2 - RESIZE) * SCALE
+    field_left = EDGE * SCALE
+    field_right = (page_width - BUTTON - RESIZE) * SCALE
     draw.rounded_rectangle((field_left, bar_top + 6 * SCALE, field_right, bar_bottom - 6 * SCALE),
                            radius=2 * SCALE, fill=SURFACE, outline=BORDER)
-    draw.text((field_left + 9 * SCALE, middle), "Перетащите или напечатайте текст — Enter переведёт",
-              font=body, fill=MUTED, anchor="lm")
+    draw.text((field_left + 9 * SCALE, middle), "перетащите текст", font=body, fill=MUTED, anchor="lm")
 
-    draw.text((field_right + (STATUS - 8) * SCALE, middle), "перетащите текст",
-              font=small, fill=MUTED, anchor="rm")
-
-    lock = field_right + (STATUS + BUTTON / 2) * SCALE
-    draw.arc((lock - 3.5 * SCALE, middle - 8 * SCALE, lock + 3.5 * SCALE, middle - 1 * SCALE),
-             180, 360, fill=MUTED, width=SCALE)
-    draw.rounded_rectangle((lock - 5 * SCALE, middle - 2 * SCALE, lock + 5 * SCALE, middle + 6 * SCALE),
-                           radius=2 * SCALE, outline=MUTED, width=SCALE)
-
-    close = field_right + (STATUS + BUTTON + BUTTON / 2) * SCALE
+    close = field_right + (BUTTON / 2) * SCALE
     draw.line((close - 4 * SCALE, middle - 4 * SCALE, close + 4 * SCALE, middle + 4 * SCALE), fill=MUTED, width=SCALE)
     draw.line((close + 4 * SCALE, middle - 4 * SCALE, close - 4 * SCALE, middle + 4 * SCALE), fill=MUTED, width=SCALE)
 
@@ -134,17 +118,9 @@ def main():
 
     middle = (top + bottom) / 2
 
-    # The grip that drags the strip around.
-    grip_left = left + 7 * SCALE
-    for row in range(3):
-        for column in range(2):
-            x = grip_left + column * 4 * SCALE
-            y = middle - 6 * SCALE + row * 5 * SCALE
-            draw.rectangle((x, y, x + 2 * SCALE - 1, y + 2 * SCALE - 1), fill=MUTED)
-
     # The one line everything happens in, drawn separately so the text is clipped by its edge.
-    field_left = left + GRIP * SCALE
-    field_right = right - (STATUS + BUTTON * 2 + RESIZE) * SCALE
+    field_left = left + EDGE * SCALE
+    field_right = right - (BUTTON * 2 + RESIZE) * SCALE
     field_top = top + 6 * SCALE
     field_bottom = bottom - 6 * SCALE
     draw.rounded_rectangle((field_left, field_top, field_right, field_bottom), radius=2 * SCALE,
@@ -157,16 +133,14 @@ def main():
     field_draw.text((9 * SCALE, field.height / 2), RESULT, font=body, fill=TEXT, anchor="lm")
     image.paste(field, (int(field_left) + SCALE, int(field_top) + SCALE))
 
-    # What just happened, the padlock and the cross.
-    draw.text((field_right + (STATUS - 8) * SCALE, middle), "скопировано", font=small, fill=MUTED, anchor="rm")
-
-    lock = field_right + (STATUS + BUTTON / 2) * SCALE
+    # The padlock and the cross; nothing else has a permanent place on the strip.
+    lock = field_right + (BUTTON / 2) * SCALE
     draw.arc((lock - 3.5 * SCALE, middle - 8 * SCALE, lock + 3.5 * SCALE, middle - 1 * SCALE),
              180, 360, fill=MUTED, width=SCALE)
     draw.rounded_rectangle((lock - 5 * SCALE, middle - 2 * SCALE, lock + 5 * SCALE, middle + 6 * SCALE),
                            radius=2 * SCALE, outline=MUTED, width=SCALE)
 
-    close = field_right + (STATUS + BUTTON + BUTTON / 2) * SCALE
+    close = field_right + (BUTTON + BUTTON / 2) * SCALE
     draw.line((close - 4 * SCALE, middle - 4 * SCALE, close + 4 * SCALE, middle + 4 * SCALE), fill=MUTED, width=SCALE)
     draw.line((close + 4 * SCALE, middle - 4 * SCALE, close - 4 * SCALE, middle + 4 * SCALE), fill=MUTED, width=SCALE)
 

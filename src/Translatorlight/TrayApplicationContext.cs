@@ -51,7 +51,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _topMostItem = new ToolStripMenuItem("Поверх всех окон", null, (_, _) => ToggleTopMost());
         _lockItem = new ToolStripMenuItem("Закрепить на месте", null, (_, _) => ToggleLock());
         _copyItem = new ToolStripMenuItem("Сразу копировать перевод", null, (_, _) => ToggleCopy());
-        _dimItem = new ToolStripMenuItem("Приглушать, пока не активен", null, (_, _) => ToggleDim());
+        _dimItem = new ToolStripMenuItem("Прозрачность, когда не активен", null, (_, _) => ToggleDim());
         _startHiddenItem = new ToolStripMenuItem("Запускаться свёрнутым", null, (_, _) => ToggleStartHidden());
         _autostartItem = new ToolStripMenuItem("Запускать вместе с Windows", null, (_, _) => ToggleAutostart());
 
