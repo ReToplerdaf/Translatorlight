@@ -21,6 +21,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _copyItem;
     private readonly ToolStripMenuItem _directionItem;
     private readonly ToolStripMenuItem _serviceItem;
+    private readonly ToolStripMenuItem _dockItem;
     private readonly ToolStripMenuItem _dimItem;
     private readonly ToolStripMenuItem _startHiddenItem;
     private readonly ToolStripMenuItem _autostartItem;
@@ -56,8 +57,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _directionItem = new ToolStripMenuItem("Направление");
         _serviceItem = new ToolStripMenuItem("Сервис перевода");
+        _dockItem = new ToolStripMenuItem("Панель рабочего стола");
         BuildDirectionMenu();
         BuildServiceMenu();
+        BuildDockMenu();
 
         _menu = new ContextMenuStrip();
         _menu.Items.AddRange(new ToolStripItem[]
@@ -68,6 +71,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             new ToolStripSeparator(),
             _directionItem,
             _serviceItem,
+            _dockItem,
             new ToolStripSeparator(),
             _topMostItem,
             _lockItem,
@@ -151,6 +155,31 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private ToolStripMenuItem CreateServiceItem(string text, string value) =>
         new(text, null, (_, _) => SetService(value)) { Tag = value };
 
+    private void BuildDockMenu()
+    {
+        _dockItem.DropDownItems.Clear();
+        _dockItem.DropDownItems.AddRange(new ToolStripItem[]
+        {
+            CreateDockItem("Не закреплять — просто окошко", AppSettings.DockNone),
+            CreateDockItem("Полосой у верхнего края", AppSettings.DockTop),
+            CreateDockItem("Полосой у нижнего края", AppSettings.DockBottom),
+        });
+    }
+
+    private ToolStripMenuItem CreateDockItem(string text, string value) =>
+        new(text, null, (_, _) => SetDock(value)) { Tag = value };
+
+    private void SetDock(string value)
+    {
+        _settings.DockEdge = value;
+        _settings.Save();
+
+        // Docking needs a window to dock, so the widget comes back into view first.
+        _widget.ShowWidget(activate: false);
+        _widget.ApplyDockSetting();
+        RefreshMenuState();
+    }
+
     private void SetDirection(string value)
     {
         _settings.Direction = value;
@@ -227,6 +256,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         CheckByTag(_directionItem, _settings.Direction);
         CheckByTag(_serviceItem, _settings.Service);
+        CheckByTag(_dockItem, _settings.DockEdge);
     }
 
     private static void CheckByTag(ToolStripMenuItem parent, string value)

@@ -31,6 +31,7 @@ internal sealed class WidgetForm : Form
     private const string IdleStatus = "перетащите текст";
 
     private readonly AppSettings _settings;
+    private readonly DesktopBar _dock;
     private readonly ToolTip _tips = new();
     private readonly System.Windows.Forms.Timer _dragLeaveTimer;
 
@@ -70,6 +71,7 @@ internal sealed class WidgetForm : Form
     internal WidgetForm(AppSettings settings)
     {
         _settings = settings;
+        _dock = new DesktopBar(this, () => _settings.AlwaysOnTop);
 
         _fieldFont = new Font("Segoe UI", 10F);
         _smallFont = new Font("Segoe UI", 8.25F);
@@ -223,6 +225,7 @@ internal sealed class WidgetForm : Form
             WindowState = FormWindowState.Normal;
         }
 
+        ApplyDockSetting();
         BringToFront();
 
         if (activate)
@@ -235,6 +238,9 @@ internal sealed class WidgetForm : Form
     internal void HideWidget()
     {
         SavePlacement();
+
+        // A hidden bar must not keep holding a strip of screen nobody can see.
+        _dock.Release();
         Hide();
     }
 
@@ -253,6 +259,12 @@ internal sealed class WidgetForm : Form
     /// <summary>Parks the bar in the corner of the screen, right above the taskbar.</summary>
     internal void SnapToTaskbar()
     {
+        if (_dock.IsDocked)
+        {
+            // A docked bar already sits where the shell put it.
+            return;
+        }
+
         Rectangle work = Screen.FromControl(this).WorkingArea;
         Location = new Point(work.Right - Width - ScreenMargin, work.Bottom - Height - ScreenMargin);
         SavePlacement();
@@ -278,6 +290,47 @@ internal sealed class WidgetForm : Form
         _ = TranslateAsync(text);
     }
 
+    /// <summary>
+    /// Docks the strip to the edge the settings name, or lets it float in its own corner again.
+    /// </summary>
+    internal void ApplyDockSetting()
+    {
+        if (!IsHandleCreated)
+        {
+            return;
+        }
+
+        DockEdge edge = _settings.DockEdge switch
+        {
+            AppSettings.DockTop => DockEdge.Top,
+            AppSettings.DockBottom => DockEdge.Bottom,
+            _ => DockEdge.None,
+        };
+
+        bool wasDocked = _dock.IsDocked;
+
+        if (edge == DockEdge.None)
+        {
+            _dock.Release();
+            NativeMethods.UseRoundedCorners(Handle, rounded: true);
+            ApplyBarHeight();
+
+            if (wasDocked)
+            {
+                RestorePlacement();
+            }
+        }
+        else
+        {
+            // A strip that spans the screen looks wrong with rounded ends.
+            NativeMethods.UseRoundedCorners(Handle, rounded: false);
+            ApplyBarHeight();
+            _dock.Apply(edge);
+        }
+
+        ApplySettings();
+    }
+
     /// <summary>Re-reads the settings that change how the widget looks and behaves.</summary>
     internal void ApplySettings()
     {
@@ -288,7 +341,9 @@ internal sealed class WidgetForm : Form
             ? "Полоска закреплена и не перетаскивается. Щелчок открепит её"
             : "Закрепить полоску на месте, чтобы не сдвинуть её случайно");
 
-        _grip.Cursor = _settings.LockedInPlace ? Cursors.Default : Cursors.SizeAll;
+        bool held = _settings.LockedInPlace || _dock.IsDocked;
+        _grip.Cursor = held ? Cursors.Default : Cursors.SizeAll;
+        _resizeStrip.Cursor = _dock.IsDocked ? Cursors.Default : Cursors.SizeWE;
         UpdateOpacity();
     }
 
@@ -322,14 +377,37 @@ internal sealed class WidgetForm : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        NativeMethods.UseRoundedCorners(Handle);
+        ApplyDockSetting();
+    }
+
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        // The strip of screen goes back to the shell before the window it belonged to is gone.
+        _dock.Release();
+        base.OnHandleDestroyed(e);
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+
+        // WndProc can run while the constructor is still assigning fields.
+        _dock?.OnMessage(m);
     }
 
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
         ApplyBarHeight();
-        RestorePlacement();
+
+        if (_dock.IsDocked)
+        {
+            _dock.Reposition();
+        }
+        else
+        {
+            RestorePlacement();
+        }
     }
 
     protected override void OnActivated(EventArgs e)
@@ -431,7 +509,9 @@ internal sealed class WidgetForm : Form
         int height = _field.Font.Height + 22;
 
         MinimumSize = new Size((int)Math.Round(SmallestWidth * scale), height);
-        MaximumSize = new Size((int)Math.Round(LargestWidth * scale), height);
+        MaximumSize = _dock.IsDocked
+            ? Size.Empty
+            : new Size((int)Math.Round(LargestWidth * scale), height);
 
         if (ClientSize.Height != height)
         {
@@ -504,7 +584,7 @@ internal sealed class WidgetForm : Form
                 return;
             }
 
-            if (_settings.LockedInPlace)
+            if (_settings.LockedInPlace || _dock.IsDocked)
             {
                 return;
             }
@@ -789,7 +869,8 @@ internal sealed class WidgetForm : Form
 
     private void OnResizeMouseDown(object? sender, MouseEventArgs e)
     {
-        if (e.Button != MouseButtons.Left)
+        // Docked, the width is the shell's business, not the mouse's.
+        if (e.Button != MouseButtons.Left || _dock.IsDocked)
         {
             return;
         }
@@ -843,7 +924,7 @@ internal sealed class WidgetForm : Form
 
     private void SavePlacement()
     {
-        if (WindowState != FormWindowState.Normal)
+        if (WindowState != FormWindowState.Normal || _dock.IsDocked)
         {
             return;
         }

@@ -15,6 +15,10 @@ internal sealed class AppSettings
 
     internal const string ServiceAuto = "auto";
 
+    internal const string DockNone = "none";
+    internal const string DockTop = "top";
+    internal const string DockBottom = "bottom";
+
     /// <summary>Where the widget sits. Null until it has been moved or shown for the first time.</summary>
     public int? WindowX { get; set; }
 
@@ -27,6 +31,12 @@ internal sealed class AppSettings
 
     /// <summary>Hold the strip where it is: a drag on it moves nothing.</summary>
     public bool LockedInPlace { get; set; }
+
+    /// <summary>
+    /// "none", "top" or "bottom": whether the shell reserves a strip of screen for the widget
+    /// along that edge, the way it does for the taskbar.
+    /// </summary>
+    public string DockEdge { get; set; } = DockNone;
 
     /// <summary>Put the translation into the clipboard as well, so Ctrl+V works straight away.</summary>
     public bool CopyToClipboard { get; set; } = true;
@@ -107,6 +117,11 @@ internal sealed class AppSettings
         if (string.IsNullOrWhiteSpace(Service))
         {
             Service = ServiceAuto;
+        }
+
+        if (DockEdge is not (DockNone or DockTop or DockBottom))
+        {
+            DockEdge = DockNone;
         }
 
         // Zero or negative sizes come from a hand-edited file; treat them as "never saved".

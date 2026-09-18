@@ -12,7 +12,9 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-OUTPUT = Path(__file__).resolve().parent.parent / "docs" / "preview.png"
+DOCS = Path(__file__).resolve().parent.parent / "docs"
+OUTPUT = DOCS / "preview.png"
+DOCKED_OUTPUT = DOCS / "docked.png"
 
 SCALE = 2
 PAGE_WIDTH, PAGE_HEIGHT = 760, 132
@@ -43,6 +45,69 @@ def font(points):
     if not Path(REGULAR).exists():
         raise SystemExit(f"Font not found: {REGULAR}")
     return ImageFont.truetype(REGULAR, int(round(points * SCALE)))
+
+
+def docked():
+    """The second picture: the strip registered with the shell as a desktop toolbar."""
+    page_width, page_height = 760, 300
+    bar_height, taskbar = 40, 40
+
+    image = Image.new("RGB", (page_width * SCALE, page_height * SCALE), DESKTOP)
+    draw = ImageDraw.Draw(image)
+    body = font(9)
+    small = font(8.25)
+
+    # A maximised window: the shell keeps it out of the strip, so it stops above the bar.
+    window_bottom = (page_height - taskbar - bar_height) * SCALE
+    draw.rectangle((0, 0, page_width * SCALE, window_bottom), fill=SURFACE)
+    draw.rectangle((0, 0, page_width * SCALE, 26 * SCALE), fill=(0xEA, 0xEA, 0xF0))
+    draw.text((14 * SCALE, 13 * SCALE), "Развёрнутое окно заканчивается здесь",
+              font=small, fill=MUTED, anchor="lm")
+    for line in range(6):
+        y = (48 + line * 18) * SCALE
+        draw.rectangle((14 * SCALE, y, (120 + line * 84) * SCALE, y + 6 * SCALE), fill=(0xE4, 0xE4, 0xEC))
+
+    # The bar itself, spanning the whole width with square ends.
+    bar_top = window_bottom
+    bar_bottom = bar_top + bar_height * SCALE
+    draw.rectangle((0, bar_top, page_width * SCALE, bar_bottom), fill=WINDOW, outline=BORDER)
+    middle = (bar_top + bar_bottom) / 2
+
+    for row in range(3):
+        for column in range(2):
+            x = 7 * SCALE + column * 4 * SCALE
+            y = middle - 6 * SCALE + row * 5 * SCALE
+            draw.rectangle((x, y, x + 2 * SCALE - 1, y + 2 * SCALE - 1), fill=MUTED)
+
+    field_left = GRIP * SCALE
+    field_right = (page_width - STATUS - BUTTON * 2 - RESIZE) * SCALE
+    draw.rounded_rectangle((field_left, bar_top + 6 * SCALE, field_right, bar_bottom - 6 * SCALE),
+                           radius=2 * SCALE, fill=SURFACE, outline=BORDER)
+    draw.text((field_left + 9 * SCALE, middle), "Перетащите или напечатайте текст — Enter переведёт",
+              font=body, fill=MUTED, anchor="lm")
+
+    draw.text((field_right + (STATUS - 8) * SCALE, middle), "перетащите текст",
+              font=small, fill=MUTED, anchor="rm")
+
+    lock = field_right + (STATUS + BUTTON / 2) * SCALE
+    draw.arc((lock - 3.5 * SCALE, middle - 8 * SCALE, lock + 3.5 * SCALE, middle - 1 * SCALE),
+             180, 360, fill=MUTED, width=SCALE)
+    draw.rounded_rectangle((lock - 5 * SCALE, middle - 2 * SCALE, lock + 5 * SCALE, middle + 6 * SCALE),
+                           radius=2 * SCALE, outline=MUTED, width=SCALE)
+
+    close = field_right + (STATUS + BUTTON + BUTTON / 2) * SCALE
+    draw.line((close - 4 * SCALE, middle - 4 * SCALE, close + 4 * SCALE, middle + 4 * SCALE), fill=MUTED, width=SCALE)
+    draw.line((close + 4 * SCALE, middle - 4 * SCALE, close - 4 * SCALE, middle + 4 * SCALE), fill=MUTED, width=SCALE)
+
+    # The real taskbar underneath.
+    draw.rectangle((0, bar_bottom, page_width * SCALE, page_height * SCALE), fill=TASKBAR)
+    for index in range(5):
+        left = (page_width / 2 - 60 + index * 26) * SCALE
+        draw.rounded_rectangle((left, bar_bottom + 11 * SCALE, left + 18 * SCALE, bar_bottom + 29 * SCALE),
+                               radius=4 * SCALE, fill=(0xC8, 0xC8, 0xD2))
+
+    image.save(DOCKED_OUTPUT, optimize=True)
+    print(f"{DOCKED_OUTPUT} written ({DOCKED_OUTPUT.stat().st_size} bytes)")
 
 
 def main():
@@ -108,6 +173,8 @@ def main():
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     image.save(OUTPUT, optimize=True)
     print(f"{OUTPUT} written ({OUTPUT.stat().st_size} bytes)")
+
+    docked()
 
 
 if __name__ == "__main__":
