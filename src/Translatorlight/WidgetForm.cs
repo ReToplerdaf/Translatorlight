@@ -499,7 +499,6 @@ internal sealed class WidgetForm : Form
         _extrasDisposed = true;
 
         _work?.Cancel();
-        _work?.Dispose();
         _work = null;
 
         _dragLeaveTimer.Dispose();
@@ -615,10 +614,13 @@ internal sealed class WidgetForm : Form
 
     private async Task TranslateAsync(string text)
     {
+        // The older request is only told to stop here; it frees its own source when it unwinds,
+        // because the HTTP call still holds a registration on that token until then.
         _work?.Cancel();
-        _work?.Dispose();
-        _work = new CancellationTokenSource();
-        CancellationToken token = _work.Token;
+
+        using var work = new CancellationTokenSource();
+        _work = work;
+        CancellationToken token = work.Token;
 
         _sourceText = text;
         ShowSource(text);
@@ -657,6 +659,14 @@ internal sealed class WidgetForm : Form
             {
                 ShowStatus("Не получилось перевести: " + ex.Message, error: true);
                 SetState(IconState.Error);
+            }
+        }
+        finally
+        {
+            // Only the request that is still the current one may clear the field.
+            if (ReferenceEquals(_work, work))
+            {
+                _work = null;
             }
         }
     }
