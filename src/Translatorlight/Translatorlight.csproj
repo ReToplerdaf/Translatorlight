@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <AssemblyName>Translatorlight</AssemblyName>
+    <RootNamespace>Translatorlight</RootNamespace>
+    <Product>Translatorlight</Product>
+    <AssemblyTitle>Translatorlight</AssemblyTitle>
+    <Description>Tray widget that translates text dropped onto it from English into Russian.</Description>
+    <Version>0.1.0</Version>
+    <ApplicationIcon>Assets\translatorlight.ico</ApplicationIcon>
+
+    <!-- Lets the project be built from Linux/macOS CI as well as from Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <!-- Reflection-based JSON settings are used, so trimming stays off. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>embedded</DebugType>
+
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <ApplicationUseCompatibleTextRendering>false</ApplicationUseCompatibleTextRendering>
+    <ApplicationDefaultFont>Segoe UI, 9pt</ApplicationDefaultFont>
+  </PropertyGroup>
+
+</Project>
